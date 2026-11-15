@@ -1,0 +1,21 @@
+{
+  "name": "catdoku",
+  "amsdos_name": "CATDOKU",
+  "profile": "standard-160x200.json",
+  "transparency": {
+    "pen": 0
+  },
+  "extended_memory": false,
+  "modules": [
+    "core/system.s",
+    "core/input.s",
+    "video/video.s",
+    "ui/text.s",
+    "resources/zx7b.s"
+  ],
+  "game_sources": [
+    "main.s",
+    "common.inc",
+    "generated/project.inc"
+  ]
+}
