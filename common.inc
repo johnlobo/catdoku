@@ -79,7 +79,6 @@ CURSOR_BYTE = 0x3C           ; pen 6 in both Mode 0 pixels
 TEXT_WHITE = 0                    ; pen 15
 TEXT_YELLOW = 1                   ; pen 6
 TEXT_GREEN = 8                    ; pen 8
-TEXT_BLUE = 9                     ; pen 12, bright blue (screen titles)
 
 ;; ---- Audio SFX ids ----
 SFX_CAT = 0
