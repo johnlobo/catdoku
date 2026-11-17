@@ -18,14 +18,15 @@
 .globl fwk_audio_init_music, fwk_audio_init_sfx, fwk_audio_start, fwk_audio_stop, fwk_audio_play_sfx
 .globl audio_songStart, audio_sfxSoundEffects
 .globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint
-.globl menu_update, game_update
+.globl menu_update, game_update, menu_dirty
 .globl str_game_time
 .globl str_game_victory
-.globl cursor_row, cursor_col, game_timer_start, game_timer_seconds, game_won, current_level_id, game_state
+.globl str_timeup
+.globl cursor_row, cursor_col, game_timer_start, game_timer_seconds, game_won, current_level_id, game_state, game_dirty, seconds_dirty
 .globl catdoku_n, catdoku_num_colours, catdoku_num_cats, catdoku_found_cnt
 .globl catdoku_grid, catdoku_cats, catdoku_found, catdoku_marks
 .globl catdoku_temp_row, catdoku_temp_col, catdoku_temp_val
-.globl catdoku_decomp_buffer, catdoku_level_table
+.globl catdoku_decomp_buffer, catdoku_level_table, catdoku_levels_packed
 .globl save_load, save_is_completed, save_write, save_get_time
 .globl catdoku_save_buffer, catdoku_save_count
 .globl cpct_setPalette_asm, cpct_drawSolidBox_asm
@@ -38,6 +39,7 @@ STATE_LEVEL_SELECT = 1
 STATE_GAME = 2
 STATE_VICTORY = 3
 STATE_SAVE = 4
+STATE_TIMEUP = 5
 
 ;; ---- Input actions (bit positions) ----
 INPUT_UP = 0x01
@@ -63,8 +65,8 @@ CATDOKU_DECOMP_BUFFER_SIZE = 128
 
 ;; ---- Screen dimensions ----
 CATDOKU_CELL_SIZE = 8
-CATDOKU_BOARD_OFFSET_X = 40
-CATDOKU_BOARD_OFFSET_Y = 40
+CATDOKU_BOARD_OFFSET_X = 60
+CATDOKU_BOARD_OFFSET_Y = 80
 
 ;; ---- Audio SFX ids ----
 SFX_CAT = 0

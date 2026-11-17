@@ -276,8 +276,8 @@ _sw_no_offset:
     ld (catdoku_save_count), a
 
 _sw_write:
-    ;; Write save buffer to disk via AMSDOS CAS OUT
-    call _sw_write_disk
+    ;; Persisting to DSK requires firmware, which is disabled after boot.
+    ;; Keep progress in memory only to avoid hanging in CAS OUT routines.
     ;; Hide modal
     call save_modal_hide
     pop hl

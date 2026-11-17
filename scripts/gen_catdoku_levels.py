@@ -136,7 +136,7 @@ def main():
         f.write(".area _DATA\n")
         f.write("catdoku_decomp_buffer:: .ds 128    ;; decompression buffer\n\n")
         f.write(".area _CODE\n\n")
-        f.write(".globl catdoku_decomp_buffer, catdoku_level_table\n\n")
+        f.write(".globl catdoku_decomp_buffer, catdoku_level_table, catdoku_levels_packed\n\n")
         f.write(";; Level table: 200 entries x 6 bytes (offset, packed_size, unpacked_size)\n")
         f.write("catdoku_level_table::\n")
         for offset, packed_size, unpacked_size in entries:

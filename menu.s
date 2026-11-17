@@ -3,6 +3,7 @@
 .module game_menu
 .globl menu_update
 .globl game_state
+.globl menu_dirty
 .include "common.inc"
 
 ;; ---- Data area ----
@@ -10,6 +11,7 @@
 
 menu_state:: .db 0           ; 0=main menu, 1=level select
 menu_selection:: .db 0       ; current menu item (0-2)
+menu_dirty:: .db 1           ; redraw only when set
 level_select_diff:: .db 0     ; current difficulty (0-4)
 level_select_item:: .db 0     ; current level within difficulty (0-39)
 game_state:: .db 0           ; global game state (STATE_*)
@@ -34,25 +36,81 @@ str_menu_pending:: .asciz "[ ]"
 ;;   Handles menu navigation and input
 ;; ----------------------------------------------------------------------------
 menu_update::
-    ;; Simple: just clear screen and draw title
+    ;; Handle input
+    ld a, (fwk_input_pressed)
+    bit 0, a            ; UP
+    jr z, _mu_down
+    ld a, (menu_selection)
+    or a
+    jr z, _mu_down
+    ;; toggle old, move, toggle new
+    call _menu_toggle_indicator
+    ld a, (menu_selection)
+    dec a
+    ld (menu_selection), a
+    call _menu_toggle_indicator
+_mu_down:
+    ld a, (fwk_input_pressed)
+    bit 1, a            ; DOWN
+    jr z, _mu_enter
+    ld a, (menu_selection)
+    cp #2
+    jr z, _mu_enter
+    call _menu_toggle_indicator
+    ld a, (menu_selection)
+    inc a
+    ld (menu_selection), a
+    call _menu_toggle_indicator
+_mu_enter:
+    ld a, (fwk_input_pressed)
+    bit 4, a            ; ENTER
+    jr z, _mu_check_dirty
+    ;; ENTER: start a game (level 0) for now
+    xor a
+    ld (current_level_id), a
+    ld (game_timer_start), a
+    ld (game_timer_start + 1), a
+    ld (game_timer_seconds), a
+    ld (game_timer_seconds + 1), a
+    ld (game_won), a
+    ld (cursor_row), a
+    ld (cursor_col), a
+    ld a, (current_level_id)
+    call board_load_level
+    ld a, #STATE_GAME
+    ld (game_state), a
+    ld a, #1
+    ld (game_dirty), a
+_mu_check_dirty:
+    ;; Redraw only if dirty
+    ld a, (menu_dirty)
+    or a
+    ret z
+    xor a
+    ld (menu_dirty), a
+    ;; Clear and draw
     xor a
     call fwk_video_clear_visible
-    ;; Test: draw solid line at scanline 0
-    ld a, #0xFF
-    ld hl, #0
-    ld c, #0
-    call fwk_video_plot_byte
-    ld a, #0xFF
-    ld hl, #0
-    ld c, #1
-    call fwk_video_plot_byte
-    ld a, #0xFF
-    ld hl, #0
-    ld c, #2
-    call fwk_video_plot_byte
+    ;; Title centered in top third (scanline ~40, column ~33 for 7 chars)
     ld hl, #str_menu_title
-    ld b, #80
-    call _menu_draw_text
+    ld b, #40
+    ld c, #33
+    call _menu_draw_text_at
+    ;; Options centered in bottom third
+    ld hl, #str_menu_new
+    ld b, #140
+    ld c, #27
+    call _menu_draw_text_at
+    ld hl, #str_menu_cont
+    ld b, #160
+    ld c, #31
+    call _menu_draw_text_at
+    ld hl, #str_menu_exit
+    ld b, #180
+    ld c, #35
+    call _menu_draw_text_at
+    ;; Selection indicator (XOR marker)
+    call _menu_toggle_indicator
     ret
 
 _mu_main_menu_unused:
@@ -395,7 +453,7 @@ _mu_ls_no_mul_time:
     ret
 
 _menu_draw_text:
-    ;; In: HL = string ptr, B = scanline Y
+    ;; In: HL = string ptr, B = scanline Y (column 4)
     ;; Out: none
     push hl
     ld l, b
@@ -404,6 +462,79 @@ _menu_draw_text:
     call fwk_video_get_ptr
     pop iy
     jp fwk_text_draw
+
+_menu_draw_text_at:
+    ;; In: HL = string ptr, B = scanline Y, C = column
+    ;; Out: none
+    push hl
+    ld l, b
+    ld h, #0
+    call fwk_video_get_ptr
+    pop iy
+    jp fwk_text_draw
+
+_menu_sel_y:
+    ;; In: none; uses menu_selection
+    ;; Out: A = scanline Y (140 + selection*20)
+    ld a, (menu_selection)
+    ld b, a
+    ld a, #0
+    or b
+    jr z, _msy_done
+    ld c, #20
+_msy_mul:
+    add a, c
+    djnz _msy_mul
+_msy_done:
+    add a, #140
+    ret
+
+_menu_toggle_indicator:
+    ;; XOR a cat sprite at the current selection's indicator position
+    call _menu_sel_y
+    ld (catdoku_temp_row), a   ; base Y
+    xor a
+    ld (catdoku_temp_col), a   ; row 0
+_mt_row:
+    ld a, (catdoku_temp_col)
+    cp #8
+    jr z, _mt_done
+    ; scanline = base Y + row
+    ld a, (catdoku_temp_row)
+    ld b, a
+    ld a, (catdoku_temp_col)
+    add a, b
+    ld l, a
+    ld h, #0
+    ld c, #20
+    call fwk_video_get_ptr       ; HL = dest
+    push hl
+    ; sprite row pointer = catdoku_cat_pixels + row*4
+    ld a, (catdoku_temp_col)
+    sla a
+    sla a
+    ld c, a
+    ld b, #0
+    ld hl, #catdoku_cat_pixels
+    add hl, bc
+    ex de, hl                    ; DE = sprite row
+    pop hl                       ; HL = dest
+    ; XOR 4 bytes
+    ld b, #4
+_mt_byte:
+    ld a, (de)
+    xor (hl)
+    ld (hl), a
+    inc de
+    inc hl
+    djnz _mt_byte
+    ; next row
+    ld a, (catdoku_temp_col)
+    inc a
+    ld (catdoku_temp_col), a
+    jr _mt_row
+_mt_done:
+    ret
 
 _str_time_label:: .asciz "TIEMPO:"
 _menu_cursor_str:

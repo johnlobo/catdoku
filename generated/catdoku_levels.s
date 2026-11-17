@@ -9,7 +9,7 @@ catdoku_decomp_buffer:: .ds 128    ;; decompression buffer
 
 .area _CODE
 
-.globl catdoku_decomp_buffer, catdoku_level_table
+.globl catdoku_decomp_buffer, catdoku_level_table, catdoku_levels_packed
 
 ;; Level table: 200 entries x 6 bytes (offset, packed_size, unpacked_size)
 catdoku_level_table::

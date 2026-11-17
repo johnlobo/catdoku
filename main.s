@@ -24,11 +24,14 @@ _main::
     ;; Initialize disk first (before system init disables firmware)
     call fwk_disk_init
 
-    ;; Initialize project
+    ;; Load save file while firmware is still available (creates if missing)
+    call save_load
+
+    ;; Initialize project (disables firmware and installs IRQ handler)
     call fwk_project_init
     call fwk_video_init
     call fwk_text_init
-    ld a, #11
+    ld a, #0
     call fwk_text_set_color
 
     ;; Install fixed palette
@@ -56,9 +59,6 @@ _main::
     call fwk_audio_init_sfx
     call fwk_audio_start
 
-    ;; Load save file (creates if missing)
-    call save_load
-
     ;; Set initial state to MENU
     xor a
     ld (game_state), a
@@ -83,6 +83,8 @@ main_loop:
     jr z, main_game
     cp #STATE_VICTORY
     jr z, main_victory
+    cp #STATE_TIMEUP
+    jr z, main_timeup
     jr main_loop
 
 main_menu:
@@ -128,11 +130,42 @@ main_victory:
     ld (game_state), a
     jr main_loop
 
+main_timeup:
+    ;; Draw time-up modal
+    xor a
+    call fwk_video_clear_visible
+    ld hl, #str_timeup
+    push hl
+    ld l, #80
+    ld h, #0
+    ld c, #28
+    call fwk_video_get_ptr
+    pop iy
+    call fwk_text_draw
+    ;; Wait for key
+    ld a, (fwk_input_pressed)
+    or a
+    jp z, main_loop
+    ;; Return to menu
+    ld a, #1
+    ld (menu_dirty), a
+    ld a, #STATE_MENU
+    ld (game_state), a
+    jp main_loop
+
 _main_draw_text:
     push hl
     ld l, b
     ld h, #0
     ld c, #4
+    call fwk_video_get_ptr
+    pop iy
+    jp fwk_text_draw
+
+_main_draw_text_at:
+    push hl
+    ld l, b
+    ld h, #0
     call fwk_video_get_ptr
     pop iy
     jp fwk_text_draw

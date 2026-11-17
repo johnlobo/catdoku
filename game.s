@@ -3,7 +3,7 @@
 .module game_game
 .globl str_game_time
 .globl str_game_victory
-.globl game_update, cursor_row, cursor_col, game_timer_start, game_timer_seconds, game_won
+.globl game_update, cursor_row, cursor_col, game_timer_start, game_timer_seconds, game_won, game_dirty, seconds_dirty, str_timeup
 .globl cursor_row, cursor_col, game_timer_start, game_timer_seconds, game_won
 .include "common.inc"
 .include "assets/generated/assets.inc"
@@ -24,12 +24,16 @@ game_timer_now:: .dw 0
 game_timer_seconds:: .dw 0
 game_won:: .db 0
 current_level_id:: .db 0
+game_dirty:: .db 1
+seconds_dirty:: .db 0
+game_seconds_buf:: .ds 6
 
 str_game_title:: .asciz "CATDOKU"
 str_game_time:: .asciz "TIEMPO:"
 str_game_hint:: .asciz "H:PISTA"
 str_game_victory:: .asciz "NIVEL COMPLETADO!"
 str_game_back:: .asciz "ESC:MENU"
+str_timeup:: .asciz "TIEMPO AGOTADO"
 
 ;; ---- Code area ----
 .area _CODE
@@ -76,7 +80,33 @@ _gu_div_sub:
     inc bc
     jr _gu_div_loop
 _gu_div_done:
+    ;; Mark dirty if seconds changed
+    ld a, (game_timer_seconds)
+    cp c
+    jr nz, _gu_seconds_changed
+    ld a, (game_timer_seconds + 1)
+    cp b
+    jr z, _gu_seconds_same
+_gu_seconds_changed:
+    ld a, #1
+    ld (seconds_dirty), a
+_gu_seconds_same:
     ld (game_timer_seconds), bc
+    ;; Check 1000-second limit
+    ld a, b
+    cp #3
+    jr c, _gu_time_ok
+    jr nz, _gu_time_expired
+    ld a, c
+    cp #0xE8
+    jr c, _gu_time_ok
+_gu_time_expired:
+    ld a, #STATE_TIMEUP
+    ld (game_state), a
+    xor a
+    ld (game_timer_start), a
+    ld (game_timer_start + 1), a
+_gu_time_ok: nop
 
     ;; Handle input
     ld a, (fwk_input_pressed)
@@ -86,9 +116,19 @@ _gu_div_done:
     ld a, (cursor_row)
     or a
     jr z, _gu_down
+    ;; erase old cursor cell
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    call _game_redraw_cell
+    ;; move
+    ld a, (cursor_row)
     dec a
     ld (cursor_row), a
-    jr _gu_left
+    call _game_clamp_cursor
+    ;; draw new cursor
+    call _game_render_cursor
 
 _gu_down:
     ld a, (fwk_input_pressed)
@@ -100,9 +140,19 @@ _gu_down:
     dec a
     cp b
     jr z, _gu_left
-    inc b
-    ld a, b
+    ;; erase old cursor cell
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    call _game_redraw_cell
+    ;; move
+    ld a, (cursor_row)
+    inc a
     ld (cursor_row), a
+    call _game_clamp_cursor
+    ;; draw new cursor
+    call _game_render_cursor
 
 _gu_left:
     ld a, (fwk_input_pressed)
@@ -111,8 +161,19 @@ _gu_left:
     ld a, (cursor_col)
     or a
     jr z, _gu_right
+    ;; erase old cursor cell
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    call _game_redraw_cell
+    ;; move
+    ld a, (cursor_col)
     dec a
     ld (cursor_col), a
+    call _game_clamp_cursor
+    ;; draw new cursor
+    call _game_render_cursor
 
 _gu_right:
     ld a, (fwk_input_pressed)
@@ -124,9 +185,19 @@ _gu_right:
     dec a
     cp b
     jr z, _gu_cat
-    inc b
-    ld a, b
+    ;; erase old cursor cell
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    call _game_redraw_cell
+    ;; move
+    ld a, (cursor_col)
+    inc a
     ld (cursor_col), a
+    call _game_clamp_cursor
+    ;; draw new cursor
+    call _game_render_cursor
 
 _gu_cat:
     ld a, (fwk_input_pressed)
@@ -151,6 +222,8 @@ _gu_cat_ok:
     ld b, #15
     ld c, #0
     call fwk_audio_play_sfx
+    ld a, #1
+    ld (game_dirty), a
 
 _gu_mark:
     ld a, (fwk_input_pressed)
@@ -162,6 +235,8 @@ _gu_mark:
     ld c, a
     ld d, #CELL_MARK
     call board_set_cell
+    ld a, #1
+    ld (game_dirty), a
     ld a, #SFX_MARK
     ld b, #10
     ld c, #1
@@ -171,6 +246,12 @@ _gu_hint:
     ld a, (fwk_input_pressed)
     bit 6, a            ; HINT pressed
     jr z, _gu_back
+    ;; erase old cursor cell
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    call _game_redraw_cell
     call board_get_hint
     or a
     jr z, _gu_back
@@ -180,19 +261,25 @@ _gu_hint:
     inc hl
     ld a, (hl)
     ld (cursor_col), a
+    ;; draw new cursor
+    call _game_render_cursor
 
 _gu_back:
     ld a, (fwk_input_pressed)
     bit 7, a            ; BACK pressed
     jr z, _gu_check_win
-    ;; Return to level select
+    ;; Return to menu
     ld a, #STATE_LEVEL_SELECT
     ld (game_state), a
     ;; Stop timer
     xor a
     ld (game_timer_start), a
     ld (game_timer_start + 1), a
-    ret
+    ld (game_timer_seconds), a
+    ld (game_timer_seconds + 1), a
+    ;; Force menu redraw
+    ld a, #1
+    ld (menu_dirty), a
 
 _gu_check_win:
     call board_check_win
@@ -201,6 +288,8 @@ _gu_check_win:
     ;; Victory!
     ld a, #1
     ld (game_won), a
+    ld a, #1
+    ld (game_dirty), a
     ;; Save progress with level_id and time
     ld a, (current_level_id)
     ld hl, (game_timer_seconds)
@@ -214,29 +303,24 @@ _gu_check_win:
     ld (game_state), a
 
 _gu_render:
+    ;; Full redraw when game_dirty
+    ld a, (game_dirty)
+    or a
+    jr z, _gu_seconds_update
+    xor a
+    ld (game_dirty), a
+    xor a
+    ld (seconds_dirty), a
     ;; Clear screen
     xor a
     call fwk_video_clear_visible
-    ;; Draw title
-    ld hl, #str_game_title
-    ld b, #4
-    call _game_draw_text
-    ;; Draw time
+    ;; Draw time label (top line, centered)
     ld hl, #str_game_time
-    ld b, #20
-    call _game_draw_text
-    ;; Draw seconds
-    ld a, (game_timer_seconds)
-    ld l, a
-    ld h, #0
-    ld de, #60
-    ;; HL = seconds, draw at position
-    ;; Use fwk_text_draw_small_u8
-    ld b, #20
-    ld c, #80
-    call fwk_video_get_ptr
-    ld a, (game_timer_seconds)
-    call fwk_text_draw_small_u8
+    ld b, #8
+    ld c, #33
+    call _game_draw_text_at
+    ;; Draw seconds (big)
+    call _game_draw_seconds
     ;; Draw hint help
     ld hl, #str_game_hint
     ld b, #180
@@ -247,7 +331,182 @@ _gu_render:
     call _game_draw_text
     ;; Render board
     call _game_render_board
-    ;; Render cursor
+    ret
+
+_gu_seconds_update:
+    ;; Update only the seconds number each second
+    ld a, (seconds_dirty)
+    or a
+    ret z
+    xor a
+    ld (seconds_dirty), a
+    ;; Clear number area (8 scanlines x 12 bytes)
+    ld a, #8
+    ld (catdoku_temp_row), a
+_clear_sec_loop:
+    ld a, (catdoku_temp_row)
+    cp #16
+    jr z, _clear_sec_done
+    ld l, a
+    ld h, #0
+    ld c, #47
+    call fwk_video_get_ptr
+    ld b, #12
+_clear_sec_bytes:
+    xor a
+    ld (hl), a
+    inc hl
+    djnz _clear_sec_bytes
+    ld a, (catdoku_temp_row)
+    inc a
+    ld (catdoku_temp_row), a
+    jr _clear_sec_loop
+_clear_sec_done: nop
+    ;; Draw seconds (big)
+    call _game_draw_seconds
+    ret
+
+_game_fill_cell:
+    ;; In: B=row, C=col. Fills 8x8 cell with region color (region+1 pen)
+    push bc
+    call board_get_cell
+    pop bc
+    add a, #4
+    cp #5
+    jr nz, _gfc_pen_ok
+    inc a
+_gfc_pen_ok:
+    ld d, a
+    sla a
+    sla a
+    sla a
+    sla a
+    or d
+    ld d, a
+    ; start scanline = 81 + row*8 (board centered, leave top gap)
+    ld a, b
+    sla a
+    sla a
+    sla a
+    add a, #81
+    ld (catdoku_temp_row), a
+    ; start column (bytes) = 30 + col*4
+    ld a, c
+    sla a
+    sla a
+    add a, #30
+    ld (catdoku_temp_col), a
+    ; fill 6 scanlines
+    xor a
+    ld (catdoku_temp_val), a
+_gfc_row:
+    ld a, (catdoku_temp_val)
+    cp #6
+    jr z, _gfc_done
+    ld a, (catdoku_temp_row)
+    ld b, a
+    ld a, (catdoku_temp_val)
+    add a, b
+    ld l, a
+    ld h, #0
+    ld a, (catdoku_temp_col)
+    ld c, a
+    call fwk_video_get_ptr
+    ld b, #3
+_gfc_byte:
+    ld a, d
+    ld (hl), a
+    inc hl
+    djnz _gfc_byte
+    ld a, (catdoku_temp_val)
+    inc a
+    ld (catdoku_temp_val), a
+    jr _gfc_row
+_gfc_done:
+    ret
+
+_game_redraw_cell:
+    ;; In: B=row, C=col. Redraws cell background + overlay
+    call _game_fill_cell
+    ;; overlay if needed
+    push bc
+    ;; compute index = row*n+col
+    ld a, b
+    ld (catdoku_temp_row), a
+    ld a, c
+    ld (catdoku_temp_col), a
+    ld hl, #0
+    ld a, (catdoku_temp_row)
+    ld b, a
+    or a
+    jr z, _grc_no_mul
+_grc_mul:
+    ld a, (catdoku_n)
+    add a, l
+    ld l, a
+    jr nc, _grc_no_carry
+    inc h
+_grc_no_carry:
+    djnz _grc_mul
+_grc_no_mul:
+    ld a, (catdoku_temp_col)
+    add a, l
+    ld l, a
+    jr nc, _grc_no_carry2
+    inc h
+_grc_no_carry2:
+    ld de, #catdoku_marks
+    add hl, de
+    ld a, (hl)
+    pop bc
+    or a
+    jr z, _grc_done
+    cp #CELL_CAT
+    jr z, _grc_cat
+    cp #CELL_MARK
+    jr z, _grc_mark
+    jr _grc_done
+_grc_cat:
+    ;; set sprite pos
+    ld a, c
+    sla a
+    sla a
+    sla a
+    add a, #CATDOKU_BOARD_OFFSET_X
+    ld (sprite_cat_desc + FWK_SPRITE_X), a
+    xor a
+    ld (sprite_cat_desc + FWK_SPRITE_X + 1), a
+    ld a, b
+    sla a
+    sla a
+    sla a
+    add a, #CATDOKU_BOARD_OFFSET_Y
+    ld (sprite_cat_desc + FWK_SPRITE_Y), a
+    xor a
+    ld (sprite_cat_desc + FWK_SPRITE_Y + 1), a
+    ld ix, #sprite_cat_desc
+    call fwk_sprite_draw_masked
+    jr _grc_done
+_grc_mark:
+    ld a, c
+    sla a
+    sla a
+    sla a
+    add a, #CATDOKU_BOARD_OFFSET_X
+    ld (sprite_mark_desc + FWK_SPRITE_X), a
+    xor a
+    ld (sprite_mark_desc + FWK_SPRITE_X + 1), a
+    ld a, b
+    sla a
+    sla a
+    sla a
+    add a, #CATDOKU_BOARD_OFFSET_Y
+    ld (sprite_mark_desc + FWK_SPRITE_Y), a
+    xor a
+    ld (sprite_mark_desc + FWK_SPRITE_Y + 1), a
+    ld ix, #sprite_mark_desc
+    call fwk_sprite_draw_masked
+_grc_done:
     ret
 
 _game_render_board:
@@ -282,9 +541,8 @@ _grb_col_loop:
     ld (sprite_cell_desc + FWK_SPRITE_Y), a
     xor a
     ld (sprite_cell_desc + FWK_SPRITE_Y + 1), a
-    ;; Draw cell sprite
-    ld ix, #sprite_cell_desc
-    call fwk_sprite_draw
+    ;; Fill cell with region color
+    call _game_fill_cell
     ;; Check cell state in marks array
     ;; index = row * n + col
     pop bc
@@ -364,26 +622,189 @@ _grb_done:
     call _game_render_cursor
     ret
 
-_game_render_cursor:
-    ;; Draw cursor sprite at (cursor_row, cursor_col)
+_game_clamp_cursor:
+    ;; Clamp cursor_row/col to 0..n-1
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (catdoku_n)
+    or a
+    jr z, _gcc_col
+    dec a
+    cp b
+    jr nc, _gcc_row_ok
+    ld a, (catdoku_n)
+    dec a
+    ld (cursor_row), a
+_gcc_row_ok:
+_gcc_col:
     ld a, (cursor_col)
-    sla a
-    sla a
-    sla a
-    add a, #CATDOKU_BOARD_OFFSET_X
-    ld (sprite_cursor_desc + FWK_SPRITE_X), a
-    xor a
-    ld (sprite_cursor_desc + FWK_SPRITE_X + 1), a
+    ld b, a
+    ld a, (catdoku_n)
+    or a
+    ret z
+    dec a
+    cp b
+    jr nc, _gcc_done
+    ld a, (catdoku_n)
+    dec a
+    ld (cursor_col), a
+_gcc_done:
+    ret
+
+_game_render_cursor:
+    ;; Draw cursor as XOR outline on full 8x8 cell
+    ;; base scanline = 80 + cursor_row*8
     ld a, (cursor_row)
     sla a
     sla a
     sla a
-    add a, #CATDOKU_BOARD_OFFSET_Y
-    ld (sprite_cursor_desc + FWK_SPRITE_Y), a
-    xor a
-    ld (sprite_cursor_desc + FWK_SPRITE_Y + 1), a
-    ld ix, #sprite_cursor_desc
-    call fwk_sprite_draw_masked
+    add a, #80
+    ld (catdoku_temp_row), a
+    ;; base column (bytes) = 30 + cursor_col*4
+    ld a, (cursor_col)
+    sla a
+    sla a
+    add a, #30
+    ld (catdoku_temp_col), a
+    ;; top row (4 bytes) XOR 0x55
+    ld a, (catdoku_temp_row)
+    ld l, a
+    ld h, #0
+    ld a, (catdoku_temp_col)
+    ld c, a
+    call fwk_video_get_ptr
+    ld b, #4
+_gcur_top:
+    ld a, (hl)
+    xor #0x55
+    ld (hl), a
+    inc hl
+    djnz _gcur_top
+    ;; bottom row (base+7) XOR 0x55
+    ld a, (catdoku_temp_row)
+    add a, #7
+    ld l, a
+    ld h, #0
+    ld a, (catdoku_temp_col)
+    ld c, a
+    call fwk_video_get_ptr
+    ld b, #4
+_gcur_bottom:
+    ld a, (hl)
+    xor #0x55
+    ld (hl), a
+    inc hl
+    djnz _gcur_bottom
+    ;; middle rows 1..6: left and right columns XOR 0x55
+    ld a, #1
+    ld (catdoku_temp_val), a
+_gcur_mid:
+    ld a, (catdoku_temp_val)
+    cp #7
+    jr z, _gcur_done
+    ld a, (catdoku_temp_row)
+    ld b, a
+    ld a, (catdoku_temp_val)
+    add a, b
+    ld l, a
+    ld h, #0
+    ld a, (catdoku_temp_col)
+    ld c, a
+    call fwk_video_get_ptr
+    ld a, (hl)
+    xor #0x55
+    ld (hl), a
+    ;; right column = base col + 3
+    ld a, (catdoku_temp_row)
+    ld b, a
+    ld a, (catdoku_temp_val)
+    add a, b
+    ld l, a
+    ld h, #0
+    ld a, (catdoku_temp_col)
+    add a, #3
+    ld c, a
+    call fwk_video_get_ptr
+    ld a, (hl)
+    xor #0x55
+    ld (hl), a
+    ld a, (catdoku_temp_val)
+    inc a
+    ld (catdoku_temp_val), a
+    jr _gcur_mid
+_gcur_done:
+    ret
+
+_game_draw_seconds:
+    ;; Convert game_timer_seconds to decimal string and draw with big font
+    ld de, (game_timer_seconds)
+    ld ix, #game_seconds_buf
+    ;; hundreds
+    ld b, #0
+_gds_hundreds:
+    ld a, d
+    or e
+    jr z, _gds_hundreds_done
+    ld a, e
+    sub #100
+    ld c, a
+    ld a, d
+    sbc a, #0
+    jr c, _gds_hundreds_done
+    ld e, c
+    ld d, a
+    inc b
+    jr _gds_hundreds
+_gds_hundreds_done:
+    ;; tens
+    ld c, #0
+_gds_tens:
+    ld a, d
+    or e
+    jr z, _gds_tens_done
+    ld a, e
+    sub #10
+    ld l, a
+    ld a, d
+    sbc a, #0
+    jr c, _gds_tens_done
+    ld e, l
+    ld d, a
+    inc c
+    jr _gds_tens
+_gds_tens_done:
+    ;; store hundreds if >0
+    ld a, b
+    or a
+    jr z, _gds_skip_hundreds
+    add a, #'0'
+    ld (ix), a
+    inc ix
+_gds_skip_hundreds:
+    ;; store tens if hundreds>0 or tens>0
+    ld a, b
+    or a
+    jr nz, _gds_store_tens
+    ld a, c
+    or a
+    jr z, _gds_skip_tens
+_gds_store_tens:
+    ld a, c
+    add a, #'0'
+    ld (ix), a
+    inc ix
+_gds_skip_tens:
+    ;; ones always
+    ld a, e
+    add a, #'0'
+    ld (ix), a
+    inc ix
+    ld (ix), #0
+    ;; draw
+    ld hl, #game_seconds_buf
+    ld b, #8
+    ld c, #47
+    call _game_draw_text_at
     ret
 
 _game_draw_text:
@@ -392,6 +813,15 @@ _game_draw_text:
     ld l, b
     ld h, #0
     ld c, #4
+    call fwk_video_get_ptr
+    pop iy
+    jp fwk_text_draw
+
+_game_draw_text_at:
+    ;; In: HL = string ptr, B = scanline Y, C = column
+    push hl
+    ld l, b
+    ld h, #0
     call fwk_video_get_ptr
     pop iy
     jp fwk_text_draw

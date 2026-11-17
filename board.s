@@ -56,29 +56,48 @@ board_load_level::
     ;; Read entry: offset(2), packed_size(2), unpacked_size(2)
     ld e, (hl)
     inc hl
-    ld d, (hl)
+    ld d, (hl)           ; DE = offset
     inc hl
     ld a, (hl)
     inc hl
-    ld (catdoku_temp_val), a   ; packed_size low
+    ld (catdoku_temp_val), a       ; packed_size low
     ld a, (hl)
     inc hl
-    ld (catdoku_temp_val + 1), a  ; packed_size high
+    ld (catdoku_temp_val + 1), a   ; packed_size high
     ld a, (hl)
     inc hl
-    ld (catdoku_temp_val + 2), a  ; unpacked_size low
+    ld (catdoku_temp_val + 2), a   ; unpacked_size low
     ld a, (hl)
-    ld (catdoku_temp_val + 3), a  ; unpacked_size high
+    ld (catdoku_temp_val + 3), a   ; unpacked_size high
 
-    ;; HL now points to packed data start
-    ;; Source end = packed_data_start + packed_size - 1
-    ;; Dest end = decomp_buffer + unpacked_size - 1
-    ;; Call fwk_zx7b_unpack
-
-    ;; For simplicity, use a direct pointer to packed data
-    ;; (actual implementation would use offset from table)
-    ld hl, #catdoku_decomp_buffer + 127   ; dest end (max)
-    ld de, #catdoku_decomp_buffer + 127   ; source end (placeholder)
+    ;; HL = catdoku_levels_packed + offset
+    push de
+    ld hl, #catdoku_levels_packed
+    pop de
+    add hl, de
+    ;; HL = packed start; compute packed end = start + packed_size - 1
+    ld a, (catdoku_temp_val)
+    ld e, a
+    ld a, (catdoku_temp_val + 1)
+    ld d, a
+    ;; DE = packed_size
+    add hl, de
+    dec hl
+    ;; HL = packed end (source end for zx7b)
+    push hl
+    ;; DE (dest end) = decomp_buffer + unpacked_size - 1
+    ld a, (catdoku_temp_val + 2)
+    ld e, a
+    ld a, (catdoku_temp_val + 3)
+    ld d, a
+    ;; DE = unpacked_size
+    ld hl, #catdoku_decomp_buffer
+    add hl, de
+    dec hl
+    ;; HL = dest end
+    ex de, hl
+    pop hl
+    ;; HL = source end, DE = dest end
     call fwk_zx7b_unpack
 
     ;; Now extract from decomp buffer
