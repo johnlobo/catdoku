@@ -314,9 +314,14 @@ _mu_ls_no_mul:
     ld (game_timer_seconds), a
     ld (game_timer_seconds + 1), a
     ld (game_won), a
+    ld (cursor_row), a
+    ld (cursor_col), a
+    ld a, (current_level_id)      ; the xor above left A = 0: load the level that was picked
     call board_load_level
     ld a, #STATE_GAME
     ld (game_state), a
+    ld a, #1
+    ld (game_dirty), a
 
 _mu_ls_draw:
     ;; Clear screen

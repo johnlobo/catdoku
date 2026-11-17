@@ -29,7 +29,7 @@ catdoku_marks::     .ds 81         ; 0=empty, 1=cat, 2=mark (X)
 ;; Scratch
 catdoku_temp_row:: .db 0
 catdoku_temp_col:: .db 0
-catdoku_temp_val:: .db 0
+catdoku_temp_val:: .ds 4          ; 4 bytes: board_load_level keeps packed/unpacked sizes here
 
 ;; ---- Code area ----
 .area _CODE
