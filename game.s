@@ -13,12 +13,20 @@
 
 cursor_row:: .db 0
 cursor_col:: .db 0
+cursor_paint: .db 0        ; byte written into the frame pixels (CURSOR_BYTE or 0)
+cursor_x: .db 0            ; first frame byte of the current line
+cursor_y: .db 0            ; top line of the frame
+cursor_hline_masks: .db 0x55, 0xFF, 0xFF, 0xFF, 0xAA
 
 ;; Sprite descriptors (8 bytes each)
-sprite_cat_desc:: .dw catdoku_cat_pixels, 0, 0, 4, 8
-sprite_mark_desc:: .dw catdoku_mark_pixels, 0, 0, 4, 8
-sprite_cell_desc:: .dw catdoku_cell_pixels, 0, 0, 4, 8
-sprite_cursor_desc:: .dw catdoku_cursor_pixels, 0, 0, 4, 8
+sprite_cat_desc:: .dw catdoku_cat_pixels, 0, 0
+    .db 4, 8                      ; width (bytes), height (lines): .db, not .dw
+sprite_mark_desc:: .dw catdoku_mark_pixels, 0, 0
+    .db 4, 8
+sprite_cell_desc:: .dw catdoku_cell_pixels, 0, 0
+    .db 4, 8
+sprite_cursor_desc:: .dw catdoku_cursor_pixels, 0, 0
+    .db 4, 8
 game_timer_start:: .dw 0
 game_timer_now:: .dw 0
 game_timer_seconds:: .dw 0
@@ -29,11 +37,11 @@ seconds_dirty:: .db 0
 game_seconds_buf:: .ds 6
 
 str_game_title:: .asciz "CATDOKU"
-str_game_time:: .asciz "TIEMPO:"
-str_game_hint:: .asciz "H:PISTA"
-str_game_victory:: .asciz "NIVEL COMPLETADO!"
-str_game_back:: .asciz "ESC:MENU"
-str_timeup:: .asciz "TIEMPO AGOTADO"
+str_game_time:: .asciz "TIME:"
+str_game_hint:: .asciz "RETURN:CAT  SPACE:MARK"
+str_game_victory:: .asciz "LEVEL COMPLETE!"
+str_game_back:: .asciz "H:HINT  ESC:MENU"
+str_timeup:: .asciz "TIME UP"
 
 ;; ---- Code area ----
 .area _CODE
@@ -116,7 +124,7 @@ _gu_time_ok: nop
     ld a, (cursor_row)
     or a
     jr z, _gu_down
-    call _game_render_cursor
+    call _game_erase_cursor
     ld a, (cursor_row)
     dec a
     ld (cursor_row), a
@@ -133,7 +141,7 @@ _gu_down:
     dec a
     cp b
     jr z, _gu_left
-    call _game_render_cursor
+    call _game_erase_cursor
     ld a, (cursor_row)
     inc a
     ld (cursor_row), a
@@ -147,7 +155,7 @@ _gu_left:
     ld a, (cursor_col)
     or a
     jr z, _gu_right
-    call _game_render_cursor
+    call _game_erase_cursor
     ld a, (cursor_col)
     dec a
     ld (cursor_col), a
@@ -164,7 +172,7 @@ _gu_right:
     dec a
     cp b
     jr z, _gu_cat
-    call _game_render_cursor
+    call _game_erase_cursor
     ld a, (cursor_col)
     inc a
     ld (cursor_col), a
@@ -182,8 +190,11 @@ _gu_cat:
     ld c, a
     ld d, #CELL_CAT
     call board_set_cell
+    push af                       ; Z = a solution cat
+    call _game_redraw_cursor_cell
+    pop af
     jr z, _gu_cat_ok
-    ;; Invalid
+    ;; Not a solution cell: the cat stays, error sound
     ld a, #SFX_ERROR
     ld b, #5
     ld c, #2
@@ -194,8 +205,6 @@ _gu_cat_ok:
     ld b, #15
     ld c, #0
     call fwk_audio_play_sfx
-    ld a, #1
-    ld (game_dirty), a
 
 _gu_mark:
     ld a, (fwk_input_pressed)
@@ -205,10 +214,14 @@ _gu_mark:
     ld b, a
     ld a, (cursor_col)
     ld c, a
+    call board_get_mark           ; SPACE toggles the mark
     ld d, #CELL_MARK
+    cp #CELL_MARK
+    jr nz, _gu_mark_set
+    ld d, #CELL_EMPTY
+_gu_mark_set:
     call board_set_cell
-    ld a, #1
-    ld (game_dirty), a
+    call _game_redraw_cursor_cell
     ld a, #SFX_MARK
     ld b, #10
     ld c, #1
@@ -219,17 +232,18 @@ _gu_hint:
     bit 6, a            ; HINT pressed
     jr z, _gu_back
     ;; erase cursor at old position
-    call _game_render_cursor
+    call _game_erase_cursor
     call board_get_hint
     or a
-    jr z, _gu_back
+    jr z, _gu_hint_none
     ;; HL = pointer to (row, col) of hint cat
     ld a, (hl)
     ld (cursor_row), a
     inc hl
     ld a, (hl)
     ld (cursor_col), a
-    ;; draw cursor at new position
+_gu_hint_none:
+    ;; draw cursor (new position, or old one again when no hint is left)
     call _game_render_cursor
 
 _gu_back:
@@ -285,7 +299,7 @@ _gu_render:
     ;; Draw time label (top line, centered)
     ld hl, #str_game_time
     ld b, #8
-    ld c, #33
+    ld c, #37                     ; "TIME:" ends at byte 47, where the seconds start
     call _game_draw_text_at
     ;; Draw seconds (big)
     call _game_draw_seconds
@@ -336,14 +350,20 @@ _clear_sec_done: nop
 
 _game_fill_cell:
     ;; In: B=row, C=col. Fills 8x8 cell with region color (region+1 pen)
+    ;; Preserves BC (cpct_px2byteM0_asm destroys B and DE).
+    push bc
     push bc
     call board_get_cell
-    pop bc
-    add a, #1
+    inc a
+    cp #CURSOR_PEN
+    jr c, _gfc_pen_ok
+    inc a                         ; skip the cursor pen
+_gfc_pen_ok:
     ld h, a
     ld l, a
     call cpct_px2byteM0_asm
     ld d, a
+    pop bc
     ; start scanline = 81 + row*8 (board centered, leave top gap)
     ld a, b
     sla a
@@ -372,7 +392,9 @@ _gfc_row:
     ld h, #0
     ld a, (catdoku_temp_col)
     ld c, a
+    push de                       ; fwk_video_get_ptr destroys DE, and D holds the colour byte
     call fwk_video_get_ptr
+    pop de
     ld b, #3
 _gfc_byte:
     ld a, d
@@ -384,6 +406,7 @@ _gfc_byte:
     ld (catdoku_temp_val), a
     jr _gfc_row
 _gfc_done:
+    pop bc
     ret
 
 _game_redraw_cell:
@@ -431,8 +454,7 @@ _grc_cat:
     ;; set sprite pos
     ld a, c
     sla a
-    sla a
-    sla a
+    sla a               ; X in bytes: 4 bytes per cell
     add a, #CATDOKU_BOARD_OFFSET_X
     ld (sprite_cat_desc + FWK_SPRITE_X), a
     xor a
@@ -451,8 +473,7 @@ _grc_cat:
 _grc_mark:
     ld a, c
     sla a
-    sla a
-    sla a
+    sla a               ; X in bytes: 4 bytes per cell
     add a, #CATDOKU_BOARD_OFFSET_X
     ld (sprite_mark_desc + FWK_SPRITE_X), a
     xor a
@@ -469,6 +490,15 @@ _grc_mark:
     call fwk_sprite_draw_masked
 _grc_done:
     ret
+
+;; Redraw the cell under the cursor (background + cat/mark), then the cursor.
+_game_redraw_cursor_cell:
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    call _game_redraw_cell
+    jp _game_render_cursor
 
 _game_render_board:
     ;; Draw each cell as sprite, then overlay cat/mark if present
@@ -487,8 +517,7 @@ _grb_col_loop:
     ;; Calculate screen X = CATDOKU_BOARD_OFFSET_X + col * 8
     ld a, c
     sla a
-    sla a
-    sla a
+    sla a               ; X in bytes: 4 bytes per cell
     add a, #CATDOKU_BOARD_OFFSET_X
     ld (sprite_cell_desc + FWK_SPRITE_X), a
     xor a
@@ -612,88 +641,99 @@ _gcc_col:
 _gcc_done:
     ret
 
+;; ----------------------------------------------------------------------------
+;; Cursor: yellow frame one pixel outside the 6x6 cell, drawn in the gap between
+;; cells. Cell (r,c) covers lines 81+8r..86+8r and bytes 30+4c..32+4c (pixels
+;; 60+8c..65+8c). The frame uses lines 80+8r and 87+8r, the right pixel of byte
+;; 29+4c and the left pixel of byte 33+4c. Mode 0 packs two pixels per byte, so
+;; each byte is masked: 0x55 = right pixel, 0xAA = left pixel, 0xFF = both.
+;; Drawing and erasing write only the frame pixels; nothing else is touched.
+;; Modifies: AF, BC, DE, HL.
+;; ----------------------------------------------------------------------------
 _game_render_cursor:
-    ;; Draw cursor as XOR outline on full 8x8 cell
-    ;; base scanline = 80 + cursor_row*8
+    ld a, #CURSOR_BYTE
+    jr _game_paint_cursor
+_game_erase_cursor:
+    xor a
+_game_paint_cursor:
+    ld (cursor_paint), a
     ld a, (cursor_row)
-    sla a
-    sla a
-    sla a
-    add a, #80
-    ld (catdoku_temp_row), a
-    ;; base column (bytes) = 30 + cursor_col*4
+    add a, a
+    add a, a
+    add a, a
+    add a, #CATDOKU_BOARD_OFFSET_Y
+    ld (cursor_y), a
     ld a, (cursor_col)
-    sla a
-    sla a
-    add a, #30
-    ld (catdoku_temp_col), a
-    ;; top row (4 bytes) XOR 0x55
-    ld a, (catdoku_temp_row)
-    ld l, a
-    ld h, #0
-    ld a, (catdoku_temp_col)
-    ld c, a
-    call fwk_video_get_ptr
-    ld b, #4
-_gcur_top:
-    ld a, (hl)
-    xor #0xFF
-    ld (hl), a
-    inc hl
-    djnz _gcur_top
-    ;; bottom row (base+7) XOR 0x55
-    ld a, (catdoku_temp_row)
+    add a, a
+    add a, a
+    add a, #CATDOKU_BOARD_OFFSET_X - 1
+    ld (cursor_x), a
+    ;; top and bottom lines
+    ld a, (cursor_y)
+    call _gpc_hline
+    ld a, (cursor_y)
     add a, #7
-    ld l, a
-    ld h, #0
-    ld a, (catdoku_temp_col)
-    ld c, a
-    call fwk_video_get_ptr
-    ld b, #4
-_gcur_bottom:
-    ld a, (hl)
-    xor #0xFF
-    ld (hl), a
-    inc hl
-    djnz _gcur_bottom
-    ;; middle rows 1..6: left and right columns XOR 0x55
-    ld a, #1
-    ld (catdoku_temp_val), a
-_gcur_mid:
-    ld a, (catdoku_temp_val)
-    cp #7
-    jr z, _gcur_done
-    ld a, (catdoku_temp_row)
-    ld b, a
-    ld a, (catdoku_temp_val)
-    add a, b
-    ld l, a
-    ld h, #0
-    ld a, (catdoku_temp_col)
-    ld c, a
-    call fwk_video_get_ptr
-    ld a, (hl)
-    xor #0xFF
-    ld (hl), a
-    ;; right column = base col + 3
-    ld a, (catdoku_temp_row)
-    ld b, a
-    ld a, (catdoku_temp_val)
-    add a, b
-    ld l, a
-    ld h, #0
-    ld a, (catdoku_temp_col)
-    add a, #3
-    ld c, a
-    call fwk_video_get_ptr
-    ld a, (hl)
-    xor #0xFF
-    ld (hl), a
-    ld a, (catdoku_temp_val)
+    call _gpc_hline
+    ;; sides, lines 1..6
+    ld b, #6
+    ld a, (cursor_y)
     inc a
-    ld (catdoku_temp_val), a
-    jr _gcur_mid
-_gcur_done:
+_gpc_side_loop:
+    push af
+    call _gpc_side
+    pop af
+    inc a
+    djnz _gpc_side_loop
+    ret
+
+;; A = line: bytes x..x+4 with masks 0x55, 0xFF, 0xFF, 0xFF, 0xAA
+_gpc_hline:
+    call _gpc_line_ptr
+    ld de, #cursor_hline_masks
+    ld b, #5
+_gpc_hline_byte:
+    ld a, (de)
+    call _gpc_apply
+    inc hl
+    inc de
+    djnz _gpc_hline_byte
+    ret
+
+;; A = line: right pixel of byte x, left pixel of byte x+4
+_gpc_side:
+    call _gpc_line_ptr
+    ld a, #0x55
+    call _gpc_apply
+    inc hl
+    inc hl
+    inc hl
+    inc hl
+    ld a, #0xAA
+    jr _gpc_apply
+
+;; A = line -> HL = screen address of (cursor_x, line). Preserves BC.
+_gpc_line_ptr:
+    ld l, a
+    ld h, #0
+    push bc
+    ld a, (cursor_x)
+    ld c, a
+    call fwk_video_get_ptr
+    pop bc
+    ret
+
+;; A = pixel mask: (HL) = (HL) & ~mask | cursor_paint & mask. Preserves BC, DE, HL.
+_gpc_apply:
+    push bc
+    ld c, a
+    cpl
+    and (hl)
+    ld b, a
+    ld a, (cursor_paint)
+    and c
+    or b
+    ld (hl), a
+    pop bc
     ret
 
 _game_draw_seconds:

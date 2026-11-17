@@ -2,7 +2,7 @@
 ;; All board-related operations live here.
 
 .module game_board
-.globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint
+.globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
 .globl catdoku_n, catdoku_num_colours, catdoku_num_cats, catdoku_found_cnt
 .globl catdoku_grid, catdoku_cats, catdoku_found, catdoku_marks
 .globl catdoku_temp_row, catdoku_temp_col, catdoku_temp_val
@@ -29,7 +29,7 @@ catdoku_marks::     .ds 81         ; 0=empty, 1=cat, 2=mark (X)
 ;; Scratch
 catdoku_temp_row:: .db 0
 catdoku_temp_col:: .db 0
-catdoku_temp_val:: .db 0
+catdoku_temp_val:: .ds 4          ; 4 bytes: board_load_level keeps packed/unpacked sizes here
 
 ;; ---- Code area ----
 .area _CODE
@@ -375,247 +375,128 @@ _bgc_no_carry2:
 board_set_cell::
     push bc
     push de
-    ;; Calculate cell index = row * n + col
-    ld a, (catdoku_n)
-    ld e, a
     ld a, b
     ld (catdoku_temp_row), a
     ld a, c
     ld (catdoku_temp_col), a
-    ;; multiply row * n
-    ld hl, #0
-    ld a, b
-    ld b, a
-    or a
-    jr z, _bsc_no_mul
-_bsc_mul:
-    ld a, (catdoku_n)
-    add a, l
-    ld l, a
-    jr nc, _bsc_no_carry
-    inc h
-_bsc_no_carry:
-    djnz _bsc_mul
-_bsc_no_mul:
-    ld a, (catdoku_temp_col)
-    add a, l
-    ld l, a
-    jr nc, _bsc_no_carry2
-    inc h
-_bsc_no_carry2:
-    ;; HL = cell index
-    ld de, #catdoku_marks
-    add hl, de
-    ;; HL = pointer to mark
-
-    ;; Check type
+    call _board_mark_ptr        ; HL = &catdoku_marks[row*n+col]
+    pop de
+    push de
     ld a, d
     cp #CELL_CAT
     jr z, _bsc_cat
     cp #CELL_MARK
     jr z, _bsc_mark
-    ;; CELL_EMPTY: clear
-    xor a
-    ld (hl), a
-    ;; Also remove from found if it was a cat
-    ;; (simplified: just clear)
-    jp _bsc_done
-
+    ld (hl), #CELL_EMPTY
+    jr _bsc_nz
 _bsc_mark:
-    ld a, #CELL_MARK
-    ld (hl), a
-    jp _bsc_done
+    ld (hl), #CELL_MARK
+    jr _bsc_nz
 
 _bsc_cat:
-    ;; Check if this cell matches a solution cat
-    ld a, (catdoku_temp_row)
-    ld b, a
-    ld a, (catdoku_temp_col)
-    ld c, a
-    ;; Search in cats list
-    ld hl, #catdoku_cats
+    ;; Place the cat, then look for (row, col) in the solution list
+    ld (hl), #CELL_CAT
     ld a, (catdoku_num_cats)
-    ld e, a
-    ld d, #0
-_bsc_search_cat:
-    ld a, (hl)
-    cp b
-    jp nz, _bsc_next_cat
+    or a
+    jr z, _bsc_nz
+    ld b, a                     ; B = cats left to check
+    ld e, #0                    ; E = cat index
+    ld hl, #catdoku_cats
+_bsc_search:
+    ld a, (catdoku_temp_row)
+    cp (hl)
+    inc hl                      ; 16-bit inc keeps flags
+    jr nz, _bsc_next
+    ld a, (catdoku_temp_col)
+    cp (hl)
+    jr z, _bsc_match
+_bsc_next:
     inc hl
-    ld a, (hl)
-    cp c
-    jp nz, _bsc_skip_cat
-    ;; Match found! Check if already found
-    dec hl
-    ;; Calculate bit index
-    ;; cat index = (hl - catdoku_cats) / 2
-    push hl
-    ld de, #catdoku_cats
-    sbc hl, de
-    sra h
-    rr l
-    ;; HL = cat index
-    ;; Check if bit is set in found bitmask
-    ld a, l
-    ld (catdoku_temp_val), a
-    ;; Calculate byte offset and bit mask
-    ld a, (catdoku_temp_val)
-    ld b, a
-    srl b
-    srl b
-    srl b           ; /8
+    inc e
+    djnz _bsc_search
+    jr _bsc_nz                  ; not a solution cell
+
+_bsc_match:
+    ;; HL = &catdoku_found[E >> 3], C = 1 << (E & 7)
+    ld a, e
+    srl a
+    srl a
+    srl a
+    ld c, a
+    ld b, #0
     ld hl, #catdoku_found
     add hl, bc
-    ld a, (catdoku_temp_val)
+    ld c, #1
+    ld a, e
     and #7
-    ld c, a
-    ld a, #1
-    ;; shift left by C
     jr z, _bsc_bit_ready
 _bsc_shift:
-    sla a
-    dec c
+    sla c
+    dec a
     jr nz, _bsc_shift
 _bsc_bit_ready:
-    ld b, a
     ld a, (hl)
-    and b
-    jr nz, _bsc_already_found
-    ;; Not found yet: set bit
+    and c
+    jr nz, _bsc_z               ; already counted
     ld a, (hl)
-    or b
+    or c
     ld (hl), a
-    ;; Increment found count
     ld a, (catdoku_found_cnt)
     inc a
     ld (catdoku_found_cnt), a
-    ;; Mark cell as cat
-    pop hl
-    ld hl, #catdoku_marks
-    ;; recalculate index
-    ld a, (catdoku_temp_row)
-    ld b, a
-    ld a, (catdoku_n)
-    ;; multiply
-    ld e, a
-    ld d, #0
+_bsc_z:
+    pop de
+    pop bc
+    xor a
+    ret
+_bsc_nz:
+    pop de
+    pop bc
+    ld a, #1
+    or a
+    ret
+
+;; ----------------------------------------------------------------------------
+;; board_get_mark
+;;   In: B = row, C = col
+;;   Out: A = CELL_EMPTY, CELL_CAT or CELL_MARK
+;;   Preserves BC. Modifies AF, DE, HL, catdoku_temp_row/col.
+;; ----------------------------------------------------------------------------
+board_get_mark::
+    push bc
     ld a, b
     ld (catdoku_temp_row), a
-    ld hl, #0
-    ld a, (catdoku_temp_row)
-    ld b, a
-    or a
-    jr z, _bsc_no_mul2
-_bsc_mul2:
-    ld a, (catdoku_n)
-    add a, l
-    ld l, a
-    jr nc, _bsc_no_carry3
-    inc h
-_bsc_no_carry3:
-    djnz _bsc_mul2
-_bsc_no_mul2:
-    ld a, (catdoku_temp_col)
-    add a, l
-    ld l, a
-    jr nc, _bsc_no_carry4
-    inc h
-_bsc_no_carry4:
-    ld de, #catdoku_marks
-    add hl, de
-    ld a, #CELL_CAT
-    ld (hl), a
-    ;; Return with Z=1 (found)
-    pop de
+    ld a, c
+    ld (catdoku_temp_col), a
+    call _board_mark_ptr
+    ld a, (hl)
     pop bc
-    xor a
-    ret
-_bsc_already_found:
-    pop hl
-    ;; Already found, just mark as cat
-    ld hl, #catdoku_marks
-    ld a, (catdoku_temp_row)
-    ld b, a
-    ld a, (catdoku_n)
-    ;; multiply
-    ld hl, #0
-    ld a, (catdoku_temp_row)
-    ld b, a
-    or a
-    jr z, _bsc_no_mul3
-_bsc_mul3:
-    ld a, (catdoku_n)
-    add a, l
-    ld l, a
-    jr nc, _bsc_no_carry5
-    inc h
-_bsc_no_carry5:
-    djnz _bsc_mul3
-_bsc_no_mul3:
-    ld a, (catdoku_temp_col)
-    add a, l
-    ld l, a
-    jr nc, _bsc_no_carry6
-    inc h
-_bsc_no_carry6:
-    ld de, #catdoku_marks
-    add hl, de
-    ld a, #CELL_CAT
-    ld (hl), a
-    pop de
-    pop bc
-    xor a
     ret
 
-_bsc_next_cat:
-    inc hl
-    inc hl
-_bsc_skip_cat:
-    ;; advance to next cat entry
-    dec b
-    jp nz, _bsc_search_cat
-    ;; No match found - place cat anyway but don't count as found
-    ld hl, #catdoku_marks
-    ld a, (catdoku_temp_row)
-    ld b, a
-    ld a, (catdoku_n)
-    ;; multiply
+;; ----------------------------------------------------------------------------
+;; _board_mark_ptr
+;;   In: catdoku_temp_row, catdoku_temp_col
+;;   Out: HL = &catdoku_marks[row * n + col]
+;;   Modifies: A, B, DE, HL
+;; ----------------------------------------------------------------------------
+_board_mark_ptr:
     ld hl, #0
-    ld a, (catdoku_temp_row)
-    ld b, a
-    or a
-    jr z, _bsc_no_mul4
-_bsc_mul4:
     ld a, (catdoku_n)
-    add a, l
-    ld l, a
-    jr nc, _bsc_no_carry7
-    inc h
-_bsc_no_carry7:
-    djnz _bsc_mul4
-_bsc_no_mul4:
+    ld e, a
+    ld d, #0
+    ld a, (catdoku_temp_row)
+    or a
+    jr z, _bmp_col
+    ld b, a
+_bmp_mul:
+    add hl, de
+    djnz _bmp_mul
+_bmp_col:
     ld a, (catdoku_temp_col)
-    add a, l
-    ld l, a
-    jr nc, _bsc_no_carry8
-    inc h
-_bsc_no_carry8:
+    ld e, a
+    add hl, de
     ld de, #catdoku_marks
     add hl, de
-    ld a, #CELL_CAT
-    ld (hl), a
-    ;; Return with Z=0 (not a solution cat)
-    pop de
-    pop bc
-    ld a, #1
-    or a
-    ret
-
-_bsc_done:
-    pop de
-    pop bc
-    ld a, #1
-    or a
     ret
 
 ;; ----------------------------------------------------------------------------
@@ -653,6 +534,8 @@ _bgh_loop:
     srl b
     srl b
     srl b
+    ld c, b
+    ld b, #0
     ld hl, #catdoku_found
     add hl, bc
     ld a, (catdoku_temp_val)
