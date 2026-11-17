@@ -222,14 +222,15 @@ _gu_hint:
     call _game_render_cursor
     call board_get_hint
     or a
-    jr z, _gu_back
+    jr z, _gu_hint_none
     ;; HL = pointer to (row, col) of hint cat
     ld a, (hl)
     ld (cursor_row), a
     inc hl
     ld a, (hl)
     ld (cursor_col), a
-    ;; draw cursor at new position
+_gu_hint_none:
+    ;; draw cursor (new position, or old one again when no hint is left)
     call _game_render_cursor
 
 _gu_back:
@@ -336,14 +337,16 @@ _clear_sec_done: nop
 
 _game_fill_cell:
     ;; In: B=row, C=col. Fills 8x8 cell with region color (region+1 pen)
+    ;; Preserves BC (cpct_px2byteM0_asm destroys B and DE).
+    push bc
     push bc
     call board_get_cell
-    pop bc
-    add a, #1
+    inc a
     ld h, a
     ld l, a
     call cpct_px2byteM0_asm
     ld d, a
+    pop bc
     ; start scanline = 81 + row*8 (board centered, leave top gap)
     ld a, b
     sla a
@@ -384,6 +387,7 @@ _gfc_byte:
     ld (catdoku_temp_val), a
     jr _gfc_row
 _gfc_done:
+    pop bc
     ret
 
 _game_redraw_cell:
@@ -431,8 +435,7 @@ _grc_cat:
     ;; set sprite pos
     ld a, c
     sla a
-    sla a
-    sla a
+    sla a               ; X in bytes: 4 bytes per cell
     add a, #CATDOKU_BOARD_OFFSET_X
     ld (sprite_cat_desc + FWK_SPRITE_X), a
     xor a
@@ -451,8 +454,7 @@ _grc_cat:
 _grc_mark:
     ld a, c
     sla a
-    sla a
-    sla a
+    sla a               ; X in bytes: 4 bytes per cell
     add a, #CATDOKU_BOARD_OFFSET_X
     ld (sprite_mark_desc + FWK_SPRITE_X), a
     xor a
@@ -487,8 +489,7 @@ _grb_col_loop:
     ;; Calculate screen X = CATDOKU_BOARD_OFFSET_X + col * 8
     ld a, c
     sla a
-    sla a
-    sla a
+    sla a               ; X in bytes: 4 bytes per cell
     add a, #CATDOKU_BOARD_OFFSET_X
     ld (sprite_cell_desc + FWK_SPRITE_X), a
     xor a

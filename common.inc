@@ -65,7 +65,7 @@ CATDOKU_DECOMP_BUFFER_SIZE = 128
 
 ;; ---- Screen dimensions ----
 CATDOKU_CELL_SIZE = 8
-CATDOKU_BOARD_OFFSET_X = 60
+CATDOKU_BOARD_OFFSET_X = 30   ; bytes (sprite X is a byte coordinate)
 CATDOKU_BOARD_OFFSET_Y = 80
 
 ;; ---- Audio SFX ids ----
