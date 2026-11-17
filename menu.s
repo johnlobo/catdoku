@@ -9,7 +9,7 @@
 ;; ---- Data area ----
 .area _DATA
 
-menu_selection:: .db 0       ; current menu item (0-2)
+menu_selection:: .db 0       ; current menu item: 0 NEW GAME, 1 CONTINUE
 menu_dirty:: .db 1           ; redraw only when set
 level_select_diff:: .db 0     ; current difficulty (0-4)
 level_select_item:: .db 0     ; current level within difficulty (0-39)
@@ -18,7 +18,6 @@ game_state:: .db 0           ; global game state (STATE_*)
 str_menu_title:: .asciz "CATDOKU"
 str_menu_new:: .asciz "NEW GAME"
 str_menu_cont:: .asciz "CONTINUE"
-str_menu_exit:: .asciz "EXIT"
 str_ls_title: .asciz "SELECT LEVEL"
 str_ls_best: .asciz "BEST:"
 str_ls_none: .asciz "--"
@@ -68,7 +67,7 @@ _mu_down:
     bit 1, a            ; DOWN
     jr z, _mu_enter
     ld a, (menu_selection)
-    cp #2
+    cp #1                         ; last item: CONTINUE
     jr z, _mu_enter
     call _menu_toggle_indicator
     ld a, (menu_selection)
@@ -82,8 +81,6 @@ _mu_enter:
     ld a, (menu_selection)
     or a
     jr z, _mu_new
-    cp #1
-    jr nz, _mu_check_dirty        ; EXIT: no action
     ;; CONTINUE: open level select on the first level not completed
     ld c, #0
 _mu_cont_loop:
@@ -145,10 +142,6 @@ _mu_check_dirty:
     ld hl, #str_menu_cont
     ld b, #160
     ld c, #32
-    call _menu_draw_text_at
-    ld hl, #str_menu_exit
-    ld b, #180
-    ld c, #36
     call _menu_draw_text_at
     ;; Selection indicator (XOR marker)
     call _menu_toggle_indicator
