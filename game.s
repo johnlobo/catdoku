@@ -19,10 +19,14 @@ cursor_y: .db 0            ; top line of the frame
 cursor_hline_masks: .db 0x55, 0xFF, 0xFF, 0xFF, 0xAA
 
 ;; Sprite descriptors (8 bytes each)
-sprite_cat_desc:: .dw catdoku_cat_pixels, 0, 0, 4, 8
-sprite_mark_desc:: .dw catdoku_mark_pixels, 0, 0, 4, 8
-sprite_cell_desc:: .dw catdoku_cell_pixels, 0, 0, 4, 8
-sprite_cursor_desc:: .dw catdoku_cursor_pixels, 0, 0, 4, 8
+sprite_cat_desc:: .dw catdoku_cat_pixels, 0, 0
+    .db 4, 8                      ; width (bytes), height (lines): .db, not .dw
+sprite_mark_desc:: .dw catdoku_mark_pixels, 0, 0
+    .db 4, 8
+sprite_cell_desc:: .dw catdoku_cell_pixels, 0, 0
+    .db 4, 8
+sprite_cursor_desc:: .dw catdoku_cursor_pixels, 0, 0
+    .db 4, 8
 game_timer_start:: .dw 0
 game_timer_now:: .dw 0
 game_timer_seconds:: .dw 0
@@ -33,11 +37,11 @@ seconds_dirty:: .db 0
 game_seconds_buf:: .ds 6
 
 str_game_title:: .asciz "CATDOKU"
-str_game_time:: .asciz "TIEMPO:"
-str_game_hint:: .asciz "RETURN:GATO  ESPACIO:MARCA"
-str_game_victory:: .asciz "NIVEL COMPLETADO!"
-str_game_back:: .asciz "H:PISTA  ESC:MENU"
-str_timeup:: .asciz "TIEMPO AGOTADO"
+str_game_time:: .asciz "TIME:"
+str_game_hint:: .asciz "RETURN:CAT  SPACE:MARK"
+str_game_victory:: .asciz "LEVEL COMPLETE!"
+str_game_back:: .asciz "H:HINT  ESC:MENU"
+str_timeup:: .asciz "TIME UP"
 
 ;; ---- Code area ----
 .area _CODE
@@ -186,8 +190,11 @@ _gu_cat:
     ld c, a
     ld d, #CELL_CAT
     call board_set_cell
+    push af                       ; Z = a solution cat
+    call _game_redraw_cursor_cell
+    pop af
     jr z, _gu_cat_ok
-    ;; Invalid
+    ;; Not a solution cell: the cat stays, error sound
     ld a, #SFX_ERROR
     ld b, #5
     ld c, #2
@@ -198,8 +205,6 @@ _gu_cat_ok:
     ld b, #15
     ld c, #0
     call fwk_audio_play_sfx
-    ld a, #1
-    ld (game_dirty), a
 
 _gu_mark:
     ld a, (fwk_input_pressed)
@@ -209,10 +214,14 @@ _gu_mark:
     ld b, a
     ld a, (cursor_col)
     ld c, a
+    call board_get_mark           ; SPACE toggles the mark
     ld d, #CELL_MARK
+    cp #CELL_MARK
+    jr nz, _gu_mark_set
+    ld d, #CELL_EMPTY
+_gu_mark_set:
     call board_set_cell
-    ld a, #1
-    ld (game_dirty), a
+    call _game_redraw_cursor_cell
     ld a, #SFX_MARK
     ld b, #10
     ld c, #1
@@ -290,7 +299,7 @@ _gu_render:
     ;; Draw time label (top line, centered)
     ld hl, #str_game_time
     ld b, #8
-    ld c, #33
+    ld c, #37                     ; "TIME:" ends at byte 47, where the seconds start
     call _game_draw_text_at
     ;; Draw seconds (big)
     call _game_draw_seconds
@@ -481,6 +490,15 @@ _grc_mark:
     call fwk_sprite_draw_masked
 _grc_done:
     ret
+
+;; Redraw the cell under the cursor (background + cat/mark), then the cursor.
+_game_redraw_cursor_cell:
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    call _game_redraw_cell
+    jp _game_render_cursor
 
 _game_render_board:
     ;; Draw each cell as sprite, then overlay cat/mark if present

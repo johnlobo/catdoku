@@ -140,7 +140,7 @@ main_timeup:
     push hl
     ld l, #80
     ld h, #0
-    ld c, #28
+    ld c, #33                     ; "TIME UP" centred
     call fwk_video_get_ptr
     pop iy
     call fwk_text_draw

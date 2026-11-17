@@ -2,7 +2,7 @@
 ;; All board-related operations live here.
 
 .module game_board
-.globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint
+.globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
 .globl catdoku_n, catdoku_num_colours, catdoku_num_cats, catdoku_found_cnt
 .globl catdoku_grid, catdoku_cats, catdoku_found, catdoku_marks
 .globl catdoku_temp_row, catdoku_temp_col, catdoku_temp_val
@@ -454,6 +454,23 @@ _bsc_nz:
     pop bc
     ld a, #1
     or a
+    ret
+
+;; ----------------------------------------------------------------------------
+;; board_get_mark
+;;   In: B = row, C = col
+;;   Out: A = CELL_EMPTY, CELL_CAT or CELL_MARK
+;;   Preserves BC. Modifies AF, DE, HL, catdoku_temp_row/col.
+;; ----------------------------------------------------------------------------
+board_get_mark::
+    push bc
+    ld a, b
+    ld (catdoku_temp_row), a
+    ld a, c
+    ld (catdoku_temp_col), a
+    call _board_mark_ptr
+    ld a, (hl)
+    pop bc
     ret
 
 ;; ----------------------------------------------------------------------------

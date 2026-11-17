@@ -17,11 +17,11 @@ level_select_item:: .db 0     ; current level within difficulty (0-39)
 game_state:: .db 0           ; global game state (STATE_*)
 
 str_menu_title:: .asciz "CATDOKU"
-str_menu_new:: .asciz "NUEVA PARTIDA"
-str_menu_cont:: .asciz "CONTINUAR"
-str_menu_exit:: .asciz "SALIR"
-str_menu_diff:: .asciz "INICIACION  FACIL  MEDIO  DIFICIL  EXPERTO"
-str_menu_level:: .asciz "NIVEL"
+str_menu_new:: .asciz "NEW GAME"
+str_menu_cont:: .asciz "CONTINUE"
+str_menu_exit:: .asciz "EXIT"
+str_menu_diff:: .asciz "BEGINNER  EASY  MEDIUM  HARD  EXPERT"
+str_menu_level:: .asciz "LEVEL"
 str_menu_completed:: .asciz "[X]"
 str_menu_pending:: .asciz "[ ]"
 
@@ -99,15 +99,15 @@ _mu_check_dirty:
     ;; Options centered in bottom third
     ld hl, #str_menu_new
     ld b, #140
-    ld c, #27
+    ld c, #32                     ; centred: 40 - length
     call _menu_draw_text_at
     ld hl, #str_menu_cont
     ld b, #160
-    ld c, #31
+    ld c, #32
     call _menu_draw_text_at
     ld hl, #str_menu_exit
     ld b, #180
-    ld c, #35
+    ld c, #36
     call _menu_draw_text_at
     ;; Selection indicator (XOR marker)
     call _menu_toggle_indicator
@@ -511,7 +511,7 @@ _mt_row:
     add a, b
     ld l, a
     ld h, #0
-    ld c, #20
+    ld c, #25                    ; marker left of the centred items
     call fwk_video_get_ptr       ; HL = dest
     push hl
     ; sprite row pointer = catdoku_cat_pixels + row*4
@@ -541,6 +541,6 @@ _mt_byte:
 _mt_done:
     ret
 
-_str_time_label:: .asciz "TIEMPO:"
+_str_time_label:: .asciz "TIME:"
 _menu_cursor_str:
     .asciz ">"

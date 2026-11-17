@@ -364,4 +364,4 @@ _save_draw_text:
     pop iy
     jp fwk_text_draw
 
-_str_saving:: .asciz "GUARDANDO..."
+_str_saving:: .asciz "SAVING..."

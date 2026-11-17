@@ -17,7 +17,7 @@
 .globl fwk_disk_init, fwk_disk_load
 .globl fwk_audio_init_music, fwk_audio_init_sfx, fwk_audio_start, fwk_audio_stop, fwk_audio_play_sfx
 .globl audio_songStart, audio_sfxSoundEffects
-.globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint
+.globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
 .globl menu_update, game_update, menu_dirty
 .globl str_game_time
 .globl str_game_victory
