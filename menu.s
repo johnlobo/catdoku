@@ -133,10 +133,14 @@ _mu_check_dirty:
     xor a
     call fwk_video_clear_visible
     ;; Title centered in top third (scanline ~40, column ~33 for 7 chars)
+    ld a, #TEXT_BLUE
+    call fwk_text_set_color
     ld hl, #str_menu_title
     ld b, #40
     ld c, #33
     call _menu_draw_text_at
+    xor a                         ; back to white
+    call fwk_text_set_color
     ;; Options centered in bottom third
     ld hl, #str_menu_new
     ld b, #140
@@ -289,6 +293,8 @@ _ls_draw_all:
     xor a
     call fwk_video_clear_visible
     xor a
+    call fwk_text_set_color
+    ld a, #TEXT_BLUE
     call fwk_text_set_color
     ld hl, #str_ls_title
     ld b, #12

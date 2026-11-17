@@ -109,10 +109,14 @@ main_victory:
     xor a
     ld (game_dirty), a
     call fwk_video_clear_visible
+    ld a, #TEXT_BLUE
+    call fwk_text_set_color
     ld hl, #str_game_victory      ; "LEVEL COMPLETE!" centred
     ld b, #70
     ld c, #25
     call _main_draw_text_at
+    xor a                         ; back to white
+    call fwk_text_set_color
     ld hl, #str_game_time         ; "TIME:" then the seconds
     ld b, #100
     ld c, #30
@@ -142,10 +146,14 @@ main_timeup:
     xor a
     ld (game_dirty), a
     call fwk_video_clear_visible
+    ld a, #TEXT_BLUE
+    call fwk_text_set_color
     ld hl, #str_timeup            ; "TIME UP" centred
     ld b, #80
     ld c, #33
     call _main_draw_text_at
+    xor a                         ; back to white
+    call fwk_text_set_color
     ld hl, #str_press_key
     ld b, #150
     ld c, #27
