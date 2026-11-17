@@ -3,7 +3,7 @@
 .module game_game
 .globl str_game_time
 .globl str_game_victory
-.globl game_update, cursor_row, cursor_col, game_timer_start, game_timer_seconds, game_won, game_dirty, seconds_dirty, str_timeup
+.globl game_update, cursor_row, cursor_col, game_timer_start, game_timer_seconds, game_won, game_dirty, seconds_dirty, str_timeup, cpct_px2byteM0_asm
 .globl cursor_row, cursor_col, game_timer_start, game_timer_seconds, game_won
 .include "common.inc"
 .include "assets/generated/assets.inc"
@@ -116,18 +116,11 @@ _gu_time_ok: nop
     ld a, (cursor_row)
     or a
     jr z, _gu_down
-    ;; erase old cursor cell
-    ld a, (cursor_row)
-    ld b, a
-    ld a, (cursor_col)
-    ld c, a
-    call _game_redraw_cell
-    ;; move
+    call _game_render_cursor
     ld a, (cursor_row)
     dec a
     ld (cursor_row), a
     call _game_clamp_cursor
-    ;; draw new cursor
     call _game_render_cursor
 
 _gu_down:
@@ -140,18 +133,11 @@ _gu_down:
     dec a
     cp b
     jr z, _gu_left
-    ;; erase old cursor cell
-    ld a, (cursor_row)
-    ld b, a
-    ld a, (cursor_col)
-    ld c, a
-    call _game_redraw_cell
-    ;; move
+    call _game_render_cursor
     ld a, (cursor_row)
     inc a
     ld (cursor_row), a
     call _game_clamp_cursor
-    ;; draw new cursor
     call _game_render_cursor
 
 _gu_left:
@@ -161,18 +147,11 @@ _gu_left:
     ld a, (cursor_col)
     or a
     jr z, _gu_right
-    ;; erase old cursor cell
-    ld a, (cursor_row)
-    ld b, a
-    ld a, (cursor_col)
-    ld c, a
-    call _game_redraw_cell
-    ;; move
+    call _game_render_cursor
     ld a, (cursor_col)
     dec a
     ld (cursor_col), a
     call _game_clamp_cursor
-    ;; draw new cursor
     call _game_render_cursor
 
 _gu_right:
@@ -185,18 +164,11 @@ _gu_right:
     dec a
     cp b
     jr z, _gu_cat
-    ;; erase old cursor cell
-    ld a, (cursor_row)
-    ld b, a
-    ld a, (cursor_col)
-    ld c, a
-    call _game_redraw_cell
-    ;; move
+    call _game_render_cursor
     ld a, (cursor_col)
     inc a
     ld (cursor_col), a
     call _game_clamp_cursor
-    ;; draw new cursor
     call _game_render_cursor
 
 _gu_cat:
@@ -246,12 +218,8 @@ _gu_hint:
     ld a, (fwk_input_pressed)
     bit 6, a            ; HINT pressed
     jr z, _gu_back
-    ;; erase old cursor cell
-    ld a, (cursor_row)
-    ld b, a
-    ld a, (cursor_col)
-    ld c, a
-    call _game_redraw_cell
+    ;; erase cursor at old position
+    call _game_render_cursor
     call board_get_hint
     or a
     jr z, _gu_back
@@ -261,7 +229,7 @@ _gu_hint:
     inc hl
     ld a, (hl)
     ld (cursor_col), a
-    ;; draw new cursor
+    ;; draw cursor at new position
     call _game_render_cursor
 
 _gu_back:
@@ -371,17 +339,10 @@ _game_fill_cell:
     push bc
     call board_get_cell
     pop bc
-    add a, #4
-    cp #5
-    jr nz, _gfc_pen_ok
-    inc a
-_gfc_pen_ok:
-    ld d, a
-    sla a
-    sla a
-    sla a
-    sla a
-    or d
+    add a, #1
+    ld h, a
+    ld l, a
+    call cpct_px2byteM0_asm
     ld d, a
     ; start scanline = 81 + row*8 (board centered, leave top gap)
     ld a, b
@@ -676,7 +637,7 @@ _game_render_cursor:
     ld b, #4
 _gcur_top:
     ld a, (hl)
-    xor #0x55
+    xor #0xFF
     ld (hl), a
     inc hl
     djnz _gcur_top
@@ -691,7 +652,7 @@ _gcur_top:
     ld b, #4
 _gcur_bottom:
     ld a, (hl)
-    xor #0x55
+    xor #0xFF
     ld (hl), a
     inc hl
     djnz _gcur_bottom
@@ -712,7 +673,7 @@ _gcur_mid:
     ld c, a
     call fwk_video_get_ptr
     ld a, (hl)
-    xor #0x55
+    xor #0xFF
     ld (hl), a
     ;; right column = base col + 3
     ld a, (catdoku_temp_row)
@@ -726,7 +687,7 @@ _gcur_mid:
     ld c, a
     call fwk_video_get_ptr
     ld a, (hl)
-    xor #0x55
+    xor #0xFF
     ld (hl), a
     ld a, (catdoku_temp_val)
     inc a
