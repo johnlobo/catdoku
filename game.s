@@ -35,6 +35,11 @@ current_level_id:: .db 0
 game_dirty:: .db 1
 seconds_dirty:: .db 0
 game_seconds_buf:: .ds 6
+help_ptr: .dw 0
+help_x: .db 0
+help_y: .db 0
+help_colour: .db 0
+help_char: .db 0, 0            ; one character + NUL
 
 str_game_title:: .asciz "CATDOKU"
 str_game_time:: .asciz "TIME:"
@@ -310,7 +315,7 @@ _gu_render:
     ld hl, #str_game_hint
     ld b, #190
     ld c, #3
-    call _game_draw_text_at
+    call help_draw_line
     ;; Render board
     call _game_render_board
     ret
@@ -825,6 +830,59 @@ _game_draw_text:
     call fwk_video_get_ptr
     pop iy
     jp fwk_text_draw
+
+;; ----------------------------------------------------------------------------
+;; help_draw_line
+;;   In: HL = "LABEL:VALUE LABEL:VALUE ..." (NUL-terminated), B = line,
+;;       C = column (bytes). Each label up to and including ':' is drawn in
+;;       TEXT_LABEL, each value in white; a space starts a new label.
+;;   Out: text colour back to white. Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+help_draw_line::
+    ld (help_ptr), hl
+    ld a, b
+    ld (help_y), a
+    ld a, c
+    ld (help_x), a
+    ld a, #TEXT_LABEL
+    ld (help_colour), a
+_hdl_loop:
+    ld hl, (help_ptr)
+    ld a, (hl)
+    or a
+    jr z, _hdl_done
+    ld (help_char), a
+    inc hl
+    ld (help_ptr), hl
+    cp #' '
+    jr nz, _hdl_draw
+    ld a, #TEXT_LABEL             ; next word starts with a label
+    ld (help_colour), a
+    jr _hdl_next
+_hdl_draw:
+    ld a, (help_colour)
+    call fwk_text_set_color
+    ld a, (help_y)
+    ld l, a
+    ld h, #0
+    ld a, (help_x)
+    ld c, a
+    call fwk_video_get_ptr
+    ld iy, #help_char
+    call fwk_text_draw
+    ld a, (help_char)
+    cp #':'
+    jr nz, _hdl_next
+    ld a, #TEXT_WHITE             ; after the colon comes the value
+    ld (help_colour), a
+_hdl_next:
+    ld a, (help_x)
+    add a, #2                     ; one character = 2 bytes
+    ld (help_x), a
+    jr _hdl_loop
+_hdl_done:
+    xor a
+    jp fwk_text_set_color
 
 _game_draw_text_at:
     ;; In: HL = string ptr, B = scanline Y, C = column

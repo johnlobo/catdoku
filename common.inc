@@ -18,7 +18,7 @@
 .globl fwk_audio_init_music, fwk_audio_init_sfx, fwk_audio_start, fwk_audio_stop, fwk_audio_play_sfx
 .globl audio_songStart, audio_sfxSoundEffects
 .globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
-.globl menu_update, level_select_update, game_update, game_draw_number_at, menu_dirty
+.globl menu_update, level_select_update, game_update, game_draw_number_at, help_draw_line, menu_dirty
 .globl str_game_time
 .globl str_game_victory
 .globl str_timeup
@@ -79,6 +79,7 @@ CURSOR_BYTE = 0x3C           ; pen 6 in both Mode 0 pixels
 TEXT_WHITE = 0                    ; pen 15
 TEXT_YELLOW = 1                   ; pen 6
 TEXT_GREEN = 8                    ; pen 8
+TEXT_LABEL = 5                    ; pen 11, light blue: labels of the help line
 
 ;; ---- Audio SFX ids ----
 SFX_CAT = 0

@@ -320,9 +320,10 @@ _ls_all_items:
     cp #CATDOKU_LEVELS_PER_DIFF
     jr nz, _ls_all_items
     call _ls_draw_best
-    ld hl, #str_ls_help           ; one line at the bottom
+    ld hl, #str_ls_help           ; one line at the bottom, 37 chars: column 40 - 37
     ld b, #190
-    jp _menu_draw_centered
+    ld c, #3
+    jp help_draw_line
 
 ;; In: A = item. Draws its number at col 10+(i%8)*8, line 52+(i/8)*20.
 _ls_draw_item:
