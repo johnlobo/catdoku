@@ -34,9 +34,9 @@ game_seconds_buf:: .ds 6
 
 str_game_title:: .asciz "CATDOKU"
 str_game_time:: .asciz "TIEMPO:"
-str_game_hint:: .asciz "H:PISTA"
+str_game_hint:: .asciz "RETURN:GATO  ESPACIO:MARCA"
 str_game_victory:: .asciz "NIVEL COMPLETADO!"
-str_game_back:: .asciz "ESC:MENU"
+str_game_back:: .asciz "H:PISTA  ESC:MENU"
 str_timeup:: .asciz "TIEMPO AGOTADO"
 
 ;; ---- Code area ----
