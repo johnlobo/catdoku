@@ -38,9 +38,16 @@ save_msg_background: .ds SAVE_MSG_WIDTH * SAVE_MSG_HEIGHT
 CAS_OUT_OPEN = 0xBC8C
 CAS_OUT_CLOSE = 0xBC8F
 CAS_OUT_DIRECT = 0xBC98
+SCR_SET_INK = 0xBC32              ; A = pen, B = C = firmware colour
+SCR_SET_BORDER = 0xBC38           ; B = C = firmware colour
+MC_SET_MODE = 0xBD1C              ; A = mode, screen not cleared
+BORDER_FW_COLOUR = 1              ; blue, the border the game keeps
 FILE_TYPE_BINARY = 2
 IRQ_VECTOR = 0x0038               ; JP <handler>, 3 bytes
 
+;; catdoku_game_palette as firmware colour numbers (assets/palette.json), so
+;; the firmware's frame interrupt keeps the game's inks while it runs.
+save_palette_fw: .db 0, 8, 13, 3, 6, 15, 24, 16, 9, 12, 20, 14, 2, 4, 1, 26
 firmware_vector: .ds 3            ; 0x0038..0x003A as the firmware left them
 game_vector: .ds 3                ; ours, while the firmware runs
 save_disk_buffer: .ds 2048        ; CAS OUT OPEN work buffer (must be above 0x4000)
@@ -241,6 +248,27 @@ _save_write_disk:
     ld bc, #3
     ldir
     ei
+    ;; The firmware interrupt re-applies its mode and inks every frame: give it
+    ;; the game's ones first, so the screen does not change during the write.
+    xor a
+    call MC_SET_MODE
+    ld hl, #save_palette_fw
+    xor a                         ; pen
+_swd_ink:
+    push af
+    push hl
+    ld b, (hl)
+    ld c, b
+    call SCR_SET_INK
+    pop hl
+    pop af
+    inc hl
+    inc a
+    cp #16
+    jr nz, _swd_ink
+    ld b, #BORDER_FW_COLOUR
+    ld c, b
+    call SCR_SET_BORDER
     ld hl, #catdoku_save_filename
     ld b, #catdoku_save_filename_len
     ld de, #save_disk_buffer
@@ -259,8 +287,8 @@ _swd_restore:
     ld bc, #3
     ldir
     ei
-    ;; The firmware interrupt re-applied its own screen mode (1) and inks on
-    ;; every frame it ran: put Mode 0 and the game palette back.
+    ;; Back on the game's interrupt: set Mode 0 and the palette through the
+    ;; hardware again (the firmware calls above only changed its own tables).
     call fwk_video_init
     ld hl, #catdoku_game_palette
     ld de, #16
