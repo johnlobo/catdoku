@@ -1,0 +1,84 @@
+{
+  "id": "catdoku-L1-n5-9397d533e1",
+  "nivel": 1,
+  "nombre_nivel": "Iniciación",
+  "n": 5,
+  "regiones": [
+    [
+      3,
+      3,
+      3,
+      3,
+      3
+    ],
+    [
+      0,
+      2,
+      3,
+      3,
+      3
+    ],
+    [
+      0,
+      2,
+      2,
+      3,
+      3
+    ],
+    [
+      0,
+      2,
+      2,
+      4,
+      4
+    ],
+    [
+      1,
+      1,
+      2,
+      2,
+      2
+    ]
+  ],
+  "solucion": [
+    [
+      1,
+      0
+    ],
+    [
+      4,
+      1
+    ],
+    [
+      2,
+      2
+    ],
+    [
+      0,
+      3
+    ],
+    [
+      3,
+      4
+    ]
+  ],
+  "metricas": {
+    "n": 5,
+    "nivel": 1,
+    "tier_max": 2,
+    "pasos": 18,
+    "t1": 5,
+    "t2": 13,
+    "t3": 0,
+    "t4": 0,
+    "tier_min": 2,
+    "primer_gato": 13,
+    "tam_min": 2,
+    "tam_max": 10,
+    "tam_media": 5.0,
+    "tam_desv": 3.3466401061363023,
+    "interbloqueo": 0.6,
+    "puntuacion": 37.73
+  },
+  "intentos": 5
+}

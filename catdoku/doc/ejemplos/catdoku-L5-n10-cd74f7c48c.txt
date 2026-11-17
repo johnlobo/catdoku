@@ -1,0 +1,14 @@
+    1 2 3 4 5 6 7 8 9 10
+ 1  A A G G G J J J @ I
+ 2  @ A G G G G G J J I
+ 3  D G G G G G @ J J J
+ 4  D D G G G G J J J @
+ 5  D D D G G G H @ H H
+ 6  D D D D @ G H H H H
+ 7  D @ D D E H H H H H
+ 8  B B D @ F F H H H H
+ 9  B B B F F @ H H H H
+10  B C @ F F F H H H H
+
+Regiones: A=R1  B=R2  C=R3  D=R4  E=R5  F=R6  G=R7  H=R8  I=R9  J=R10
+Gatos: (2,1), (7,2), (10,3), (8,4), (6,5), (9,6), (3,7), (5,8), (1,9), (4,10)

@@ -1,0 +1,9 @@
+    1 2 3 4 5
+ 1  D D D @ D
+ 2  @ C D D D
+ 3  A C @ D D
+ 4  A C C E @
+ 5  B @ C C C
+
+Regiones: A=R1  B=R2  C=R3  D=R4  E=R5
+Gatos: (2,1), (5,2), (3,3), (1,4), (4,5)

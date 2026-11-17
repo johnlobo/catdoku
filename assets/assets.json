@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "palette": "palette.json",
+  "palette_symbol": "catdoku_palette",
+  "images": [
+    {
+      "source": "src/sprites.png",
+      "width": 8,
+      "height": 8,
+      "symbol": "catdoku_sprites",
+      "tiles": [
+        "catdoku_cat_pixels",
+        "catdoku_mark_pixels",
+        "catdoku_cell_pixels",
+        "catdoku_cursor_pixels"
+      ]
+    }
+  ]
+}

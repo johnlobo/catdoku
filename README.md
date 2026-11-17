@@ -1,27 +1,35 @@
 # CATDOKU
 
-Proyecto creado con `glasnost new` (plantilla `ecs-welcome`, framework 2.0.0-beta.2-93-g5f95824).
-Un juego mínimo con el ECS de GlasnostFWK: una nave que se mueve con las flechas
-del cursor y tres drones que patrullan.
+Juego de puzles de lógica (familia Star Battle/Queens) para Amstrad CPC.
 
+## Descripción
+Catdoku es un juego de colocación de gatos en un tablero n×n dividido en regiones de color.
+El objetivo: colocar n gatos, uno por región, fila y columna, sin que dos se toquen (ni en diagonal).
+
+## Controles
+- **Cursor**: moverseleccionador
+- **ENTER**: colocar/quitar gato
+- **ESPACIO**: marcar celda como descartada (X)
+- **H**: pista (muestra un gato no encontrado)
+- **ESC**: volver al menú
+
+## Estructura del proyecto
+- `main.s` - Punto de entrada y máquina de estados
+- `menu.s` - Menú principal y selección de nivel
+- `game.s` - Bucle de juego, temporizador, render
+- `board.s` - Lógica del tablero
+- `save.s` - Guardado/carga de progreso
+- `common.inc` - Constantes y definiciones compartidas
+- `assets/` - Sprites (PNG) y paleta
+- `generated/` - Niveles comprimidos, música y efectos
+
+## Compilación
 ```sh
-glasnost build      # compila a build/ (CATDOKU.BIN, .CDT y .DSK)
-glasnost run        # abre el .DSK en el emulador: RUN"CATDOKU
-glasnost test       # comprueba el proyecto y que compila
-glasnost config --title "OTRO TITULO"   # cambia título, vídeo o memoria extendida
+glasnost build
+glasnost run
+glasnost test
 ```
 
-Tu código está en `main.s` y `common.inc`. Lo que escribe `glasnost`
-(`generated/`, y las claves `name`, `amsdos_name`, `profile`, `transparency` y
-`extended_memory` de `glasnost.manifest.json`) se regenera con `glasnost config`: no lo
-edites a mano. Para usar un sistema del framework añade su componente
-en `ecs.components` y su módulo en `modules` de `glasnost.manifest.json`, y ejecuta
-`glasnost config` para regenerar lo generado. Guía paso a paso (mapa y sprites importados de PNG y TMX,
-animación, colisiones): `docs/guide/first-game.md` en el SDK.
-
-## Repositorio
-
-Este proyecto es un repositorio Git independiente del framework y no tiene remoto.
-Crea el suyo en tu hosting y enlázalo con `glasnost remote <URL>` (rechaza la URL del
-framework); después, `git push -u origin main`. `glasnost update` solo usa ramas locales:
-no hace fetch ni push.
+## Niveles
+200 niveles pregenerados (40 por dificultad: Iniciación, Fácil, Medio, Difícil, Experto).
+El progreso se guarda en `CATDOKU.SAV` en el DSK.

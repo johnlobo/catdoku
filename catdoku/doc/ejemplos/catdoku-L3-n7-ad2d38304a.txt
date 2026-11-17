@@ -1,0 +1,11 @@
+    1 2 3 4 5 6 7
+ 1  B D D @ D F F
+ 2  B B B B B @ F
+ 3  B B @ B B F G
+ 4  B B C B B E @
+ 5  A @ E E E E E
+ 6  A A E E @ E E
+ 7  @ A E E E E E
+
+Regiones: A=R1  B=R2  C=R3  D=R4  E=R5  F=R6  G=R7
+Gatos: (7,1), (5,2), (3,3), (1,4), (6,5), (2,6), (4,7)

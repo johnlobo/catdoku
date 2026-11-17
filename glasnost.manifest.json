@@ -10,12 +10,25 @@
     "core/system.s",
     "core/input.s",
     "video/video.s",
+    "video/sprite.s",
+    "video/transparency.s",
     "ui/text.s",
-    "resources/zx7b.s"
+    "ui/window.s",
+    "resources/zx7b.s",
+    "resources/disk.s",
+    "audio/akg.s"
   ],
   "game_sources": [
     "main.s",
+    "menu.s",
+    "game.s",
+    "board.s",
+    "save.s",
     "common.inc",
-    "generated/project.inc"
+    "generated/project.inc",
+    "generated/catdoku_levels.s",
+    "generated/catdoku_music.s",
+    "generated/catdoku_sfx.s",
+    "assets/generated/assets.inc"
   ]
 }
