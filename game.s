@@ -38,9 +38,8 @@ game_seconds_buf:: .ds 6
 
 str_game_title:: .asciz "CATDOKU"
 str_game_time:: .asciz "TIME:"
-str_game_hint:: .asciz "RETURN:CAT  SPACE:MARK"
+str_game_hint:: .asciz "RETURN:CAT SPACE:MARK H:HINT ESC:MENU"
 str_game_victory:: .asciz "LEVEL COMPLETE!"
-str_game_back:: .asciz "H:HINT  ESC:MENU"
 str_timeup:: .asciz "TIME UP"
 
 ;; ---- Code area ----
@@ -307,14 +306,11 @@ _gu_render:
     call _game_draw_text_at
     ;; Draw seconds (big)
     call _game_draw_seconds
-    ;; Draw hint help
+    ;; Controls help, one line at the bottom (37 chars, centred: 40 - 37)
     ld hl, #str_game_hint
-    ld b, #180
-    call _game_draw_text
-    ;; Draw back help
-    ld hl, #str_game_back
     ld b, #190
-    call _game_draw_text
+    ld c, #3
+    call _game_draw_text_at
     ;; Render board
     call _game_render_board
     ret

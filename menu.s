@@ -22,8 +22,7 @@ str_menu_exit:: .asciz "EXIT"
 str_ls_title: .asciz "SELECT LEVEL"
 str_ls_best: .asciz "BEST:"
 str_ls_none: .asciz "--"
-str_ls_help1: .asciz "RETURN:PLAY  SPACE:DIFFICULTY"
-str_ls_help2: .asciz "ESC:BACK"
+str_ls_help: .asciz "RETURN:PLAY SPACE:DIFFICULTY ESC:BACK"
 str_diff_0: .asciz "BEGINNER"
 str_diff_1: .asciz "EASY"
 str_diff_2: .asciz "MEDIUM"
@@ -321,11 +320,8 @@ _ls_all_items:
     cp #CATDOKU_LEVELS_PER_DIFF
     jr nz, _ls_all_items
     call _ls_draw_best
-    ld hl, #str_ls_help1
-    ld b, #172
-    call _menu_draw_centered
-    ld hl, #str_ls_help2
-    ld b, #184
+    ld hl, #str_ls_help           ; one line at the bottom
+    ld b, #190
     jp _menu_draw_centered
 
 ;; In: A = item. Draws its number at col 10+(i%8)*8, line 52+(i/8)*20.
