@@ -94,7 +94,7 @@ main_menu:
     jr main_loop
 
 main_level_select:
-    call menu_update
+    call level_select_update
     jr main_loop
 
 main_game:
@@ -102,58 +102,65 @@ main_game:
     jr main_loop
 
 main_victory:
-    ;; Draw victory screen
-    xor a
-    call fwk_video_clear_visible
-    ld hl, #str_game_victory
-    ld b, #60
-    call _main_draw_text
-    ;; Draw time label
-    ld hl, #str_game_time
-    ld b, #90
-    call _main_draw_text
-    ;; Draw time value
-    ld hl, #game_timer_seconds
-    ld a, (hl)
-    ld l, a
-    ld h, #0
-    ;; Draw at position
-    ld b, #90
-    ld c, #80
-    call fwk_video_get_ptr
-    ld a, (game_timer_seconds)
-    call fwk_text_draw_small_u8
-    ;; Wait for key
-    ld a, (fwk_input_pressed)
+    ;; Drawn once (game_dirty is set by the win), then wait for a key
+    ld a, (game_dirty)
     or a
-    jr z, main_loop
-    ;; Go back to level select
-    ld a, #STATE_LEVEL_SELECT
-    ld (game_state), a
-    jr main_loop
-
-main_timeup:
-    ;; Draw time-up modal
+    jr z, _mv_wait
     xor a
+    ld (game_dirty), a
     call fwk_video_clear_visible
-    ld hl, #str_timeup
-    push hl
-    ld l, #80
-    ld h, #0
-    ld c, #33                     ; "TIME UP" centred
-    call fwk_video_get_ptr
-    pop iy
-    call fwk_text_draw
-    ;; Wait for key
+    ld hl, #str_game_victory      ; "LEVEL COMPLETE!" centred
+    ld b, #70
+    ld c, #25
+    call _main_draw_text_at
+    ld hl, #str_game_time         ; "TIME:" then the seconds
+    ld b, #100
+    ld c, #30
+    call _main_draw_text_at
+    ld hl, (game_timer_seconds)
+    ld b, #100
+    ld c, #42
+    call game_draw_number_at
+    ld hl, #str_press_key
+    ld b, #150
+    ld c, #27
+    call _main_draw_text_at
+_mv_wait:
     ld a, (fwk_input_pressed)
     or a
     jp z, main_loop
-    ;; Return to menu
+    ld a, #STATE_LEVEL_SELECT
+    ld (game_state), a
     ld a, #1
     ld (menu_dirty), a
-    ld a, #STATE_MENU
-    ld (game_state), a
     jp main_loop
+
+main_timeup:
+    ld a, (game_dirty)
+    or a
+    jr z, _mt_wait
+    xor a
+    ld (game_dirty), a
+    call fwk_video_clear_visible
+    ld hl, #str_timeup            ; "TIME UP" centred
+    ld b, #80
+    ld c, #33
+    call _main_draw_text_at
+    ld hl, #str_press_key
+    ld b, #150
+    ld c, #27
+    call _main_draw_text_at
+_mt_wait:
+    ld a, (fwk_input_pressed)
+    or a
+    jp z, main_loop
+    ld a, #STATE_LEVEL_SELECT
+    ld (game_state), a
+    ld a, #1
+    ld (menu_dirty), a
+    jp main_loop
+
+str_press_key: .asciz "PRESS ANY KEY"
 
 _main_draw_text:
     push hl

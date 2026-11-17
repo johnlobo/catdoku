@@ -111,9 +111,12 @@ _gu_seconds_same:
 _gu_time_expired:
     ld a, #STATE_TIMEUP
     ld (game_state), a
+    ld a, #1
+    ld (game_dirty), a            ; main_timeup draws its screen once
     xor a
     ld (game_timer_start), a
     ld (game_timer_start + 1), a
+    ret                           ; leave game_dirty for main_timeup
 _gu_time_ok: nop
 
     ;; Handle input
@@ -283,6 +286,7 @@ _gu_check_win:
     call fwk_audio_play_sfx
     ld a, #STATE_VICTORY
     ld (game_state), a
+    ret                           ; leave game_dirty for main_victory
 
 _gu_render:
     ;; Full redraw when game_dirty
@@ -737,8 +741,18 @@ _gpc_apply:
     ret
 
 _game_draw_seconds:
-    ;; Convert game_timer_seconds to decimal string and draw with big font
-    ld de, (game_timer_seconds)
+    ld hl, (game_timer_seconds)
+    ld b, #8
+    ld c, #47
+
+;; ----------------------------------------------------------------------------
+;; game_draw_number_at
+;;   In: HL = 0..999, B = line, C = column (bytes). Draws it in the big font.
+;;   Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+game_draw_number_at::
+    push bc
+    ex de, hl
     ld ix, #game_seconds_buf
     ;; hundreds
     ld b, #0
@@ -802,11 +816,9 @@ _gds_skip_tens:
     inc ix
     ld (ix), #0
     ;; draw
+    pop bc
     ld hl, #game_seconds_buf
-    ld b, #8
-    ld c, #47
-    call _game_draw_text_at
-    ret
+    jp _game_draw_text_at
 
 _game_draw_text:
     ;; In: HL = string ptr, B = scanline Y
