@@ -1,9 +1,10 @@
 ;; save.s - Save/load progress for Catdoku
-;; Reads CATDOKU.SAV at boot (fwk_disk_load); progress is kept in memory
+;; Reads CATDOKU.SAV at boot (fwk_disk_load) and writes it after every
+;; completed level, switching the firmware interrupt back on for the write.
 
 .module game_save
 .globl catdoku_save_buffer, catdoku_save_count, catdoku_save_loaded
-.globl save_load, save_is_completed, save_write, save_get_time
+.globl save_load, save_is_completed, save_write, save_get_time, save_capture_firmware
 .include "common.inc"
 
 ;; ---- Data area ----
@@ -28,11 +29,21 @@ sw_time: .dw 0
 ;; captured first and put back afterwards.
 SAVE_MSG_WIDTH = 32
 SAVE_MSG_HEIGHT = 24
-SAVE_MSG_FRAMES = 50              ; 1 s on screen so it can be read
 save_msg_window: .db 24
     .dw 88
     .db SAVE_MSG_WIDTH, SAVE_MSG_HEIGHT, 0x3C, 0x3F
 save_msg_background: .ds SAVE_MSG_WIDTH * SAVE_MSG_HEIGHT
+
+;; Firmware calls (CPC 6128 jumpblock)
+CAS_OUT_OPEN = 0xBC8C
+CAS_OUT_CLOSE = 0xBC8F
+CAS_OUT_DIRECT = 0xBC98
+FILE_TYPE_BINARY = 2
+IRQ_VECTOR = 0x0038               ; JP <handler>, 3 bytes
+
+firmware_vector: .ds 3            ; 0x0038..0x003A as the firmware left them
+game_vector: .ds 3                ; ours, while the firmware runs
+save_disk_buffer: .ds 2048        ; CAS OUT OPEN work buffer (must be above 0x4000)
 
 ;; ---- Code area ----
 .area _CODE
@@ -177,17 +188,6 @@ _save_message_show:
     jp fwk_text_draw
 
 _save_message_hide:
-    ;; Count frames with the interrupt-driven counter: cpct_waitVSYNC returns at
-    ;; once while the VSYNC pulse is still active, so calling it in a loop does
-    ;; not wait one frame per call.
-    ld de, (fwk_system_frame_count)
-_smh_wait:
-    ld hl, (fwk_system_frame_count)
-    or a
-    sbc hl, de
-    ld a, l
-    cp #SAVE_MSG_FRAMES
-    jr c, _smh_wait
     ld ix, #save_msg_window
     ld hl, #save_msg_background
     jp fwk_window_restore
@@ -198,9 +198,8 @@ _str_saving: .asciz "SAVING"     ; the big font has no "."
 ;; save_write
 ;;   In: A = level id, HL = time in seconds.
 ;;   Adds the level, or keeps the lower of the stored and the new time.
-;;   In memory only: writing the disc needs the firmware, which is off while
-;;   the game runs, so progress lasts until the machine is reset.
-;;   Shows the "SAVING..." window for SAVE_MSG_FRAMES frames.
+;;   Then writes CATDOKU.SAV to the disc (_save_write_disk).
+;;   Shows the "SAVING" window while the disc is written.
 ;;   Modifies: AF, BC, DE, HL, IX, IY.
 ;; ----------------------------------------------------------------------------
 save_write::
@@ -208,7 +207,64 @@ save_write::
     ld (sw_time), hl
     call _save_message_show
     call _save_store
+    call _save_write_disk
     jp _save_message_hide
+
+;; ----------------------------------------------------------------------------
+;; save_capture_firmware
+;;   Call once at boot, before fwk_project_init: keeps the firmware interrupt
+;;   vector so the disc can be written later. Modifies: BC, DE, HL.
+;; ----------------------------------------------------------------------------
+save_capture_firmware::
+    ld hl, #IRQ_VECTOR
+    ld de, #firmware_vector
+    ld bc, #3
+    ldir
+    ret
+
+;; ----------------------------------------------------------------------------
+;; _save_write_disk
+;;   Writes catdoku_save_buffer to CATDOKU.SAV. cpct_disableFirmware only
+;;   replaced the JP at 0x0038 and the firmware RAM (0xA700-0xBFFF) is intact,
+;;   so putting the firmware vector back is enough for AMSDOS to run. Music
+;;   and the frame counter stop while it writes. A disc error ends the write
+;;   (no retry). Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+_save_write_disk:
+    di
+    ld hl, #IRQ_VECTOR
+    ld de, #game_vector
+    ld bc, #3
+    ldir
+    ld hl, #firmware_vector
+    ld de, #IRQ_VECTOR
+    ld bc, #3
+    ldir
+    ei
+    ld hl, #catdoku_save_filename
+    ld b, #catdoku_save_filename_len
+    ld de, #save_disk_buffer
+    call CAS_OUT_OPEN
+    jr nc, _swd_restore
+    ld hl, #catdoku_save_buffer
+    ld de, #SAVE_BUFFER_SIZE
+    ld bc, #0                     ; entry address (data file)
+    ld a, #FILE_TYPE_BINARY
+    call CAS_OUT_DIRECT
+    call CAS_OUT_CLOSE
+_swd_restore:
+    di
+    ld hl, #game_vector
+    ld de, #IRQ_VECTOR
+    ld bc, #3
+    ldir
+    ei
+    ;; The firmware interrupt re-applied its own screen mode (1) and inks on
+    ;; every frame it ran: put Mode 0 and the game palette back.
+    call fwk_video_init
+    ld hl, #catdoku_game_palette
+    ld de, #16
+    jp cpct_setPalette_asm
 
 _save_store:
     ld a, (sw_level)
