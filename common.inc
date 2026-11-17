@@ -18,7 +18,7 @@
 .globl fwk_audio_init_music, fwk_audio_init_sfx, fwk_audio_start, fwk_audio_stop, fwk_audio_play_sfx
 .globl audio_songStart, audio_sfxSoundEffects
 .globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
-.globl menu_update, game_update, menu_dirty
+.globl menu_update, level_select_update, game_update, game_draw_number_at, help_draw_line, menu_dirty
 .globl str_game_time
 .globl str_game_victory
 .globl str_timeup
@@ -61,6 +61,8 @@ CATDOKU_MAX_N = 9
 CATDOKU_MAX_CATS = 9
 CATDOKU_MAX_CELLS = 81
 CATDOKU_NUM_LEVELS = 200
+CATDOKU_DIFFICULTIES = 5
+CATDOKU_LEVELS_PER_DIFF = 40      ; CATDOKU_NUM_LEVELS / CATDOKU_DIFFICULTIES
 CATDOKU_DECOMP_BUFFER_SIZE = 128
 
 ;; ---- Screen dimensions ----
@@ -72,6 +74,12 @@ CATDOKU_BOARD_OFFSET_Y = 80
 CURSOR_PEN = 6               ; yellow (HW 0x0A) in _orig_palette
 CURSOR_BYTE = 0x3C           ; pen 6 in both Mode 0 pixels
 ;; Region r is drawn with pen r+1, skipping CURSOR_PEN so no region shares the cursor colour.
+
+;; ---- Text colours: fwk_text_set_color indices (framework/src/ui/text.s table) ----
+TEXT_WHITE = 0                    ; pen 15
+TEXT_YELLOW = 1                   ; pen 6
+TEXT_GREEN = 8                    ; pen 8
+TEXT_LABEL = 5                    ; pen 11, light blue: labels of the help line
 
 ;; ---- Audio SFX ids ----
 SFX_CAT = 0

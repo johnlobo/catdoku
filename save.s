@@ -1,234 +1,242 @@
 ;; save.s - Save/load progress for Catdoku
-;; Uses fwk_disk_init + fwk_disk_load for reading, AMSDOS CAS OUT for writing
+;; Reads CATDOKU.SAV at boot (fwk_disk_load); progress is kept in memory
 
 .module game_save
 .globl catdoku_save_buffer, catdoku_save_count, catdoku_save_loaded
-.globl save_load, save_is_completed, save_write, save_get_time, save_modal_show, save_modal_hide
+.globl save_load, save_is_completed, save_write, save_get_time
 .include "common.inc"
 
 ;; ---- Data area ----
 .area _DATA
 
-catdoku_save_buffer:: .ds 256     ; save file buffer (max 256 bytes)
+;; "CATDOKU" + version, then one 5-byte entry per completed level:
+;; level id, time low, time high, 0, 0. 0xFF ends the list.
+SAVE_HEADER_SIZE = 8
+SAVE_ENTRY_SIZE = 5
+SAVE_BUFFER_SIZE = SAVE_HEADER_SIZE + CATDOKU_NUM_LEVELS * SAVE_ENTRY_SIZE
+
+catdoku_save_buffer:: .ds SAVE_BUFFER_SIZE
 catdoku_save_count:: .db 0        ; number of completed levels in buffer
-catdoku_save_loaded:: .db 0       ; 1 if save was loaded successfully
+catdoku_save_loaded:: .db 0       ; 1 once save_load ran
 catdoku_save_filename:: .asciz "CATDOKU.SAV"
 catdoku_save_filename_len = 11
+sw_level: .db 0
+sw_time: .dw 0
 
-;; AMSDOS header buffer (2KB for file header)
-catdoku_amsdos_header:: .ds 2048
-
-;; Modal state
-save_modal_active:: .db 0
-save_modal_bg:: .ds 256           ; background capture buffer
+;; "SAVING..." message: framework window over the board (bytes 24..55, lines
+;; 88..111), yellow border (pen 6), dark blue fill (pen 14). The background is
+;; captured first and put back afterwards.
+SAVE_MSG_WIDTH = 32
+SAVE_MSG_HEIGHT = 24
+SAVE_MSG_FRAMES = 50              ; 1 s on screen so it can be read
+save_msg_window: .db 24
+    .dw 88
+    .db SAVE_MSG_WIDTH, SAVE_MSG_HEIGHT, 0x3C, 0x3F
+save_msg_background: .ds SAVE_MSG_WIDTH * SAVE_MSG_HEIGHT
 
 ;; ---- Code area ----
 .area _CODE
 
 ;; ----------------------------------------------------------------------------
 ;; save_load
-;;   In: none
-;;   Out: none
-;;   Modifies: catdoku_save_buffer, catdoku_save_count, catdoku_save_loaded
-;;   Reads CATDOKU.SAV if it exists. If not, creates an empty save.
+;;   Reads CATDOKU.SAV if the disc has one, else starts an empty save.
+;;   Called once at boot, while the firmware is still on.
+;;   Modifies: AF, BC, DE, HL, catdoku_save_*.
 ;; ----------------------------------------------------------------------------
 save_load::
-    ;; Try to load the save file
+    ;; Whole buffer to 0xFF first, so a short file still ends with the marker
+    ld hl, #catdoku_save_buffer
+    ld (hl), #0xFF
+    ld de, #catdoku_save_buffer + 1
+    ld bc, #SAVE_BUFFER_SIZE - 1
+    ldir
     ld hl, #catdoku_save_filename
     ld b, #catdoku_save_filename_len
     ld de, #catdoku_save_buffer
     call fwk_disk_load
-    jr nc, _sl_not_found
-    ;; File found - parse it
-    ;; Check header "CATDOKU"
-    ld hl, #catdoku_save_buffer
-    ld a, (hl)
+    jr nc, _sl_empty
+    ld a, (catdoku_save_buffer)
     cp #'C'
-    jr nz, _sl_not_found
-    inc hl
-    ld a, (hl)
+    jr nz, _sl_empty
+    ld a, (catdoku_save_buffer + 1)
     cp #'A'
-    jr nz, _sl_not_found
-    ;; Header OK - count entries
-    ld hl, #catdoku_save_buffer + 8   ; after "CATDOKU" + version
-    ld de, #catdoku_save_buffer + 256  ; end of buffer
+    jr nz, _sl_empty
+    ;; Count entries up to the 0xFF marker
+    ld hl, #catdoku_save_buffer + SAVE_HEADER_SIZE
+    ld de, #SAVE_ENTRY_SIZE
     ld c, #0
-_sl_count_loop:
-    ld a, l
-    cp e
-    jr z, _sl_count_done
+_sl_count:
     ld a, (hl)
     cp #0xFF
-    jr z, _sl_count_done
-    inc c
-    ld a, l
-    add a, #5
-    ld l, a
-    jr nc, _sl_count_loop
-    inc h
-    jr _sl_count_loop
-_sl_count_done:
+    jr z, _sl_counted
     ld a, c
+    cp #CATDOKU_NUM_LEVELS
+    jr z, _sl_counted
+    inc c
+    add hl, de
+    jr _sl_count
+_sl_counted:
+    ld a, c
+    jr _sl_done
+
+_sl_empty:
+    ld hl, #catdoku_save_buffer
+    ld (hl), #0xFF
+    ld de, #catdoku_save_buffer + 1
+    ld bc, #SAVE_BUFFER_SIZE - 1
+    ldir
+    ld hl, #_save_magic
+    ld de, #catdoku_save_buffer
+    ld bc, #SAVE_HEADER_SIZE
+    ldir
+    xor a
+_sl_done:
     ld (catdoku_save_count), a
     ld a, #1
     ld (catdoku_save_loaded), a
     ret
 
-_sl_not_found:
-    ;; Create empty save file
-    ld hl, #catdoku_save_buffer
-    ld a, #'C'
-    ld (hl), a
-    inc hl
-    ld a, #'A'
-    ld (hl), a
-    inc hl
-    ld a, #'T'
-    ld (hl), a
-    inc hl
-    ld a, #'D'
-    ld (hl), a
-    inc hl
-    ld a, #'O'
-    ld (hl), a
-    inc hl
-    ld a, #'K'
-    ld (hl), a
-    inc hl
-    ld a, #'U'
-    ld (hl), a
-    inc hl
-    ld a, #1              ; version
-    ld (hl), a
-    ;; Fill rest with 0xFF
-    inc hl
-    ld b, #256 - 8
-_sl_fill:
-    ld (hl), #0xFF
-    inc hl
-    djnz _sl_fill
-    xor a
-    ld (catdoku_save_count), a
-    ld a, #1
-    ld (catdoku_save_loaded), a
+_save_magic: .ascii "CATDOKU"
+    .db 1                         ; version
+
+;; ----------------------------------------------------------------------------
+;; _save_find
+;;   In: A = level id.
+;;   Out: Z and HL = its entry when found; NZ and HL = first free entry.
+;;   Modifies: AF, BC, HL.
+;; ----------------------------------------------------------------------------
+_save_find:
+    ld b, a
+    ld hl, #catdoku_save_buffer + SAVE_HEADER_SIZE
+    ld a, (catdoku_save_count)
+    ld c, a
+_sf_loop:
+    ld a, c
+    or a
+    jr z, _sf_missing
+    ld a, (hl)
+    cp b
+    ret z
+    push de
+    ld de, #SAVE_ENTRY_SIZE
+    add hl, de
+    pop de
+    dec c
+    jr _sf_loop
+_sf_missing:
+    inc a                         ; A = 1: NZ
     ret
 
 ;; ----------------------------------------------------------------------------
 ;; save_is_completed
-;;   In: A = level_id
-;;   Out: A = 1 if completed, 0 otherwise
-;;   Modifies: AF, HL, BC
+;;   In: A = level id. Out: A = 1 if completed, 0 otherwise.
+;;   Modifies: AF, BC, HL.
 ;; ----------------------------------------------------------------------------
 save_is_completed::
-    ld b, a
-    ld hl, #catdoku_save_buffer + 8   ; first entry
-    ld a, (catdoku_save_count)
-    ld c, a
-_sl_check_loop:
-    ld a, c
-    or a
-    jr z, _sl_not_completed
-    ld a, (hl)
-    cp b
-    jr z, _sl_completed
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    dec c
-    jr _sl_check_loop
-_sl_completed:
+    call _save_find
     ld a, #1
-    ret
-_sl_not_completed:
+    ret z
     xor a
     ret
 
 ;; ----------------------------------------------------------------------------
 ;; save_get_time
-;;   In: A = level_id
-;;   Out: HL = time in seconds (0 if not completed)
-;;   Modifies: AF, BC, DE, HL
+;;   In: A = level id. Out: HL = best time in seconds, 0 if not completed.
+;;   Modifies: AF, BC, DE, HL.
 ;; ----------------------------------------------------------------------------
 save_get_time::
-    ld b, a
-    ld hl, #catdoku_save_buffer + 8   ; first entry
-    ld a, (catdoku_save_count)
-    ld c, a
-_sgt_loop:
-    ld a, c
-    or a
-    jr z, _sgt_not_found
-    ld a, (hl)
-    cp b
-    jr z, _sgt_found
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    dec c
-    jr _sgt_loop
-_sgt_found:
+    call _save_find
+    jr nz, _sgt_none
     inc hl
     ld e, (hl)
     inc hl
     ld d, (hl)
-    ;; DE = time (16-bit), return in HL
     ex de, hl
     ret
-_sgt_not_found:
+_sgt_none:
     ld hl, #0
     ret
 
 ;; ----------------------------------------------------------------------------
+;; _save_message_show / _save_message_hide
+;;   Window with "SAVING..." and its background capture.
+;;   Modify: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+_save_message_show:
+    ld ix, #save_msg_window
+    ld de, #save_msg_background
+    call fwk_window_capture
+    ld ix, #save_msg_window
+    call fwk_window_draw
+    ld hl, #_str_saving           ; 6 characters, centred: 40 - 6
+    push hl
+    ld hl, #96
+    ld c, #34
+    call fwk_video_get_ptr
+    pop iy
+    jp fwk_text_draw
+
+_save_message_hide:
+    ;; Count frames with the interrupt-driven counter: cpct_waitVSYNC returns at
+    ;; once while the VSYNC pulse is still active, so calling it in a loop does
+    ;; not wait one frame per call.
+    ld de, (fwk_system_frame_count)
+_smh_wait:
+    ld hl, (fwk_system_frame_count)
+    or a
+    sbc hl, de
+    ld a, l
+    cp #SAVE_MSG_FRAMES
+    jr c, _smh_wait
+    ld ix, #save_msg_window
+    ld hl, #save_msg_background
+    jp fwk_window_restore
+
+_str_saving: .asciz "SAVING"     ; the big font has no "."
+
+;; ----------------------------------------------------------------------------
 ;; save_write
-;;   In: A = level_id, DE:HL = time_seconds (32-bit)
-;;       Actually: time in HL (16-bit seconds) for simplicity
-;;   Out: none
-;;   Modifies: save buffer, writes to disk
-;;   Adds or updates an entry for this level
+;;   In: A = level id, HL = time in seconds.
+;;   Adds the level, or keeps the lower of the stored and the new time.
+;;   In memory only: writing the disc needs the firmware, which is off while
+;;   the game runs, so progress lasts until the machine is reset.
+;;   Shows the "SAVING..." window for SAVE_MSG_FRAMES frames.
+;;   Modifies: AF, BC, DE, HL, IX, IY.
 ;; ----------------------------------------------------------------------------
 save_write::
-    push af
-    push de
-    push hl
-    ;; Show modal "GUARDANDO..."
-    call save_modal_show
-    ;; Check if level already exists
-    pop hl
-    pop de
-    pop af
-    push af
-    push de
-    push hl
-    ld b, a
-    ld hl, #catdoku_save_buffer + 8
-    ld a, (catdoku_save_count)
-    ld c, a
-_sw_find_loop:
-    ld a, c
-    or a
-    jr z, _sw_add_new
-    ld a, (hl)
-    cp b
-    jr z, _sw_update
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    dec c
-    jr _sw_find_loop
+    ld (sw_level), a
+    ld (sw_time), hl
+    call _save_message_show
+    call _save_store
+    jp _save_message_hide
 
-_sw_update:
-    ;; Update time at HL+1..HL+4
-    pop de              ; time low
-    pop af              ; level_id (discard)
-    push af
-    push de
+_save_store:
+    ld a, (sw_level)
+    call _save_find
+    jr nz, _sw_new
+    inc hl                        ; existing: keep the best time
+    ld e, (hl)
     inc hl
+    ld d, (hl)                    ; DE = stored time, HL -> high byte
+    push hl
+    ld hl, (sw_time)
+    or a
+    sbc hl, de                    ; carry when new < stored
+    pop hl
+    ret nc
+    ld de, (sw_time)
+    ld (hl), d
+    dec hl
+    ld (hl), e
+    ret
+_sw_new:
+    ld a, (catdoku_save_count)
+    cp #CATDOKU_NUM_LEVELS
+    ret nc
+    ld a, (sw_level)
+    ld (hl), a
+    inc hl
+    ld de, (sw_time)
     ld (hl), e
     inc hl
     ld (hl), d
@@ -236,132 +244,6 @@ _sw_update:
     ld (hl), #0
     inc hl
     ld (hl), #0
-    jr _sw_write
-
-_sw_add_new:
-    ;; Add new entry at end
-    pop de              ; time
-    pop af              ; level_id
-    push af
-    push de
-    ld hl, #catdoku_save_buffer + 8
-    ld a, (catdoku_save_count)
-    ;; offset = count * 5
-    ld b, a
-    ld c, #5
-    ld a, b
-    or a
-    jr z, _sw_no_offset
-_sw_mul:
-    add hl, bc
-    djnz _sw_mul
-_sw_no_offset:
-    ;; HL = pointer to new entry
-    pop de              ; time
-    pop af              ; level_id
-    push af
-    push de
-    ld (hl), a          ; level_id
-    inc hl
-    ld (hl), e          ; time low
-    inc hl
-    ld (hl), d          ; time high
-    inc hl
-    ld (hl), #0
-    inc hl
-    ld (hl), #0
-    ;; Increment count
-    ld a, (catdoku_save_count)
-    inc a
-    ld (catdoku_save_count), a
-
-_sw_write:
-    ;; Persisting to DSK requires firmware, which is disabled after boot.
-    ;; Keep progress in memory only to avoid hanging in CAS OUT routines.
-    ;; Hide modal
-    call save_modal_hide
-    pop hl
-    pop de
-    pop af
+    ld hl, #catdoku_save_count
+    inc (hl)
     ret
-
-_sw_write_disk:
-    ;; CAS OUT OPEN (0xBC8C)
-    ;; HL = filename, B = length, DE = header buffer, C = file type (0 = binary)
-    ld hl, #catdoku_save_filename
-    ld b, #catdoku_save_filename_len
-    ld de, #catdoku_amsdos_header
-    ld c, #0              ; binary file
-    call 0xBC8C            ; CAS OUT OPEN
-    jr nc, _sw_write_fail
-    ;; CAS OUT DIRECT (0xBC98)
-    ;; HL = buffer address, DE = size to write, BC = logical file size
-    ld hl, #catdoku_save_buffer
-    ld de, #256            ; size to write
-    ld bc, #256            ; logical file size
-    call 0xBC98            ; CAS OUT DIRECT
-    ;; CAS OUT CLOSE (0xBC8F)
-    call 0xBC8F            ; CAS OUT CLOSE
-    ret
-_sw_write_fail:
-    ;; Write failed - just return
-    ret
-
-;; ----------------------------------------------------------------------------
-;; save_modal_show
-;;   In: none
-;;   Out: none
-;;   Modifies: screen (draws modal "GUARDANDO...")
-;;   Captures background and draws a modal window
-;; ----------------------------------------------------------------------------
-save_modal_show::
-    ld a, #1
-    ld (save_modal_active), a
-    ;; Capture background at center of screen
-    ld hl, #save_modal_bg
-    ld b, #80              ; x
-    ld c, #80              ; y
-    ld d, #16              ; width
-    ld e, #8               ; height
-    call fwk_window_capture
-    ;; Draw window
-    ld hl, #save_modal_bg
-    ld b, #80
-    ld c, #80
-    ld d, #16
-    ld e, #8
-    call fwk_window_draw
-    ;; Draw "GUARDANDO..." text
-    ld hl, #_str_saving
-    ld b, #90
-    call _save_draw_text
-    ret
-
-;; ----------------------------------------------------------------------------
-;; save_modal_hide
-;;   In: none
-;;   Out: none
-;;   Modifies: screen (restores background)
-;; ----------------------------------------------------------------------------
-save_modal_hide::
-    xor a
-    ld (save_modal_active), a
-    ;; Restore background
-    ld hl, #save_modal_bg
-    ld b, #80
-    ld c, #80
-    ld d, #16
-    ld e, #8
-    call fwk_window_restore
-    ret
-
-_save_draw_text:
-    push hl
-    ld l, b
-    ld h, #0
-    ld c, #84
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw
-
-_str_saving:: .asciz "SAVING..."

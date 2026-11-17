@@ -35,12 +35,16 @@ current_level_id:: .db 0
 game_dirty:: .db 1
 seconds_dirty:: .db 0
 game_seconds_buf:: .ds 6
+help_ptr: .dw 0
+help_x: .db 0
+help_y: .db 0
+help_colour: .db 0
+help_char: .db 0, 0            ; one character + NUL
 
 str_game_title:: .asciz "CATDOKU"
 str_game_time:: .asciz "TIME:"
-str_game_hint:: .asciz "RETURN:CAT  SPACE:MARK"
+str_game_hint:: .asciz "RETURN:CAT SPACE:MARK H:HINT ESC:MENU"
 str_game_victory:: .asciz "LEVEL COMPLETE!"
-str_game_back:: .asciz "H:HINT  ESC:MENU"
 str_timeup:: .asciz "TIME UP"
 
 ;; ---- Code area ----
@@ -111,9 +115,12 @@ _gu_seconds_same:
 _gu_time_expired:
     ld a, #STATE_TIMEUP
     ld (game_state), a
+    ld a, #1
+    ld (game_dirty), a            ; main_timeup draws its screen once
     xor a
     ld (game_timer_start), a
     ld (game_timer_start + 1), a
+    ret                           ; leave game_dirty for main_timeup
 _gu_time_ok: nop
 
     ;; Handle input
@@ -283,6 +290,7 @@ _gu_check_win:
     call fwk_audio_play_sfx
     ld a, #STATE_VICTORY
     ld (game_state), a
+    ret                           ; leave game_dirty for main_victory
 
 _gu_render:
     ;; Full redraw when game_dirty
@@ -303,14 +311,11 @@ _gu_render:
     call _game_draw_text_at
     ;; Draw seconds (big)
     call _game_draw_seconds
-    ;; Draw hint help
+    ;; Controls help, one line at the bottom (37 chars, centred: 40 - 37)
     ld hl, #str_game_hint
-    ld b, #180
-    call _game_draw_text
-    ;; Draw back help
-    ld hl, #str_game_back
     ld b, #190
-    call _game_draw_text
+    ld c, #3
+    call help_draw_line
     ;; Render board
     call _game_render_board
     ret
@@ -737,8 +742,18 @@ _gpc_apply:
     ret
 
 _game_draw_seconds:
-    ;; Convert game_timer_seconds to decimal string and draw with big font
-    ld de, (game_timer_seconds)
+    ld hl, (game_timer_seconds)
+    ld b, #8
+    ld c, #47
+
+;; ----------------------------------------------------------------------------
+;; game_draw_number_at
+;;   In: HL = 0..999, B = line, C = column (bytes). Draws it in the big font.
+;;   Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+game_draw_number_at::
+    push bc
+    ex de, hl
     ld ix, #game_seconds_buf
     ;; hundreds
     ld b, #0
@@ -802,11 +817,9 @@ _gds_skip_tens:
     inc ix
     ld (ix), #0
     ;; draw
+    pop bc
     ld hl, #game_seconds_buf
-    ld b, #8
-    ld c, #47
-    call _game_draw_text_at
-    ret
+    jp _game_draw_text_at
 
 _game_draw_text:
     ;; In: HL = string ptr, B = scanline Y
@@ -817,6 +830,59 @@ _game_draw_text:
     call fwk_video_get_ptr
     pop iy
     jp fwk_text_draw
+
+;; ----------------------------------------------------------------------------
+;; help_draw_line
+;;   In: HL = "LABEL:VALUE LABEL:VALUE ..." (NUL-terminated), B = line,
+;;       C = column (bytes). Each label up to and including ':' is drawn in
+;;       TEXT_LABEL, each value in white; a space starts a new label.
+;;   Out: text colour back to white. Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+help_draw_line::
+    ld (help_ptr), hl
+    ld a, b
+    ld (help_y), a
+    ld a, c
+    ld (help_x), a
+    ld a, #TEXT_LABEL
+    ld (help_colour), a
+_hdl_loop:
+    ld hl, (help_ptr)
+    ld a, (hl)
+    or a
+    jr z, _hdl_done
+    ld (help_char), a
+    inc hl
+    ld (help_ptr), hl
+    cp #' '
+    jr nz, _hdl_draw
+    ld a, #TEXT_LABEL             ; next word starts with a label
+    ld (help_colour), a
+    jr _hdl_next
+_hdl_draw:
+    ld a, (help_colour)
+    call fwk_text_set_color
+    ld a, (help_y)
+    ld l, a
+    ld h, #0
+    ld a, (help_x)
+    ld c, a
+    call fwk_video_get_ptr
+    ld iy, #help_char
+    call fwk_text_draw
+    ld a, (help_char)
+    cp #':'
+    jr nz, _hdl_next
+    ld a, #TEXT_WHITE             ; after the colon comes the value
+    ld (help_colour), a
+_hdl_next:
+    ld a, (help_x)
+    add a, #2                     ; one character = 2 bytes
+    ld (help_x), a
+    jr _hdl_loop
+_hdl_done:
+    xor a
+    jp fwk_text_set_color
 
 _game_draw_text_at:
     ;; In: HL = string ptr, B = scanline Y, C = column
