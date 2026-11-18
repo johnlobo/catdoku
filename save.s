@@ -5,6 +5,7 @@
 .module game_save
 .globl catdoku_save_buffer, catdoku_save_count, catdoku_save_loaded
 .globl save_load, save_is_completed, save_write, save_get_time, save_capture_firmware
+.globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings
 .include "common.inc"
 
 ;; ---- Data area ----
@@ -12,8 +13,11 @@
 
 ;; "CATDOKU" + version, then one 5-byte entry per completed level:
 ;; level id, time low, time high, 0, 0. 0xFF ends the list.
+;; Bit 7 of the version byte (offset 7) is the AUTO MARK option.
 SAVE_HEADER_SIZE = 8
 SAVE_ENTRY_SIZE = 5
+SAVE_FLAGS_OFFSET = 7
+SAVE_FLAG_AUTO_MARK = 0x80
 SAVE_BUFFER_SIZE = SAVE_HEADER_SIZE + CATDOKU_NUM_LEVELS * SAVE_ENTRY_SIZE
 
 catdoku_save_buffer:: .ds SAVE_BUFFER_SIZE
@@ -214,6 +218,32 @@ save_write::
     ld (sw_time), hl
     call _save_message_show
     call _save_store
+    call _save_write_disk
+    jp _save_message_hide
+
+;; ----------------------------------------------------------------------------
+;; save_get_auto_mark
+;;   Out: A = 1 if AUTO MARK is on, 0 otherwise. Modifies: AF.
+;; save_toggle_auto_mark
+;;   Flips AUTO MARK in the buffer (not written yet). Modifies: AF.
+;; save_write_settings
+;;   Writes the buffer to the disc with the "SAVING" window, like save_write.
+;;   Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+save_get_auto_mark::
+    ld a, (catdoku_save_buffer + SAVE_FLAGS_OFFSET)
+    rlca
+    and #1
+    ret
+
+save_toggle_auto_mark::
+    ld a, (catdoku_save_buffer + SAVE_FLAGS_OFFSET)
+    xor #SAVE_FLAG_AUTO_MARK
+    ld (catdoku_save_buffer + SAVE_FLAGS_OFFSET), a
+    ret
+
+save_write_settings::
+    call _save_message_show
     call _save_write_disk
     jp _save_message_hide
 

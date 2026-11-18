@@ -28,6 +28,7 @@
 .globl catdoku_temp_row, catdoku_temp_col, catdoku_temp_val
 .globl catdoku_decomp_buffer, catdoku_level_table, catdoku_levels_packed
 .globl save_load, save_is_completed, save_write, save_get_time, save_capture_firmware
+.globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings
 .globl catdoku_game_palette
 .globl catdoku_save_buffer, catdoku_save_count
 .globl cpct_setPalette_asm, cpct_drawSolidBox_asm, cpct_px2byteM0_asm
