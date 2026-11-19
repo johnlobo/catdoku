@@ -201,12 +201,19 @@ _gu_cat:
     call _game_redraw_cursor_cell
     pop af
     jr z, _gu_cat_ok
-    ;; Not a solution cell: the cat stays, error sound
+    ;; Not a solution cell: the game is lost
     ld a, #SFX_ERROR
     ld b, #5
     ld c, #2
     call fwk_audio_play_sfx
-    jr _gu_mark
+    xor a
+    ld (game_timer_start), a      ; stop the timer
+    ld (game_timer_start + 1), a
+    ld a, #STATE_LOST
+    ld (game_state), a
+    ld a, #1
+    ld (game_dirty), a            ; main_lost draws its window once
+    ret
 _gu_cat_ok:
     ld a, #SFX_CAT
     ld b, #15

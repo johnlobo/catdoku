@@ -8,7 +8,7 @@
 
 .area _DATA
 game_status:: .db 0              ; 0x5A once running, else error code
-_orig_palette:
+catdoku_game_palette::
     ;; pen 1 = firmware 8 (bright magenta, HW 0x0D) as in assets/palette.json;
     ;; it was 0x0A, the same bright yellow as pen 6, so regions 0 and 5 matched.
     .db 0x14, 0x0D, 0x00, 0x1C, 0x0C, 0x0E, 0x0A, 0x07, 0x16, 0x1E, 0x13, 0x1F, 0x15, 0x18, 0x04, 0x0B
@@ -28,6 +28,8 @@ _main::
 
     ;; Load save file while firmware is still available (creates if missing)
     call save_load
+    ;; Keep the firmware interrupt vector for later disc writes
+    call save_capture_firmware
 
     ;; Initialize project (disables firmware and installs IRQ handler)
     call fwk_project_init
@@ -37,7 +39,7 @@ _main::
     call fwk_text_set_color
 
     ;; Install fixed palette
-    ld hl, #_orig_palette
+    ld hl, #catdoku_game_palette
     ld de, #16
     call cpct_setPalette_asm
 
@@ -87,6 +89,8 @@ main_loop:
     jr z, main_victory
     cp #STATE_TIMEUP
     jr z, main_timeup
+    cp #STATE_LOST
+    jp z, main_lost               ; too far for jr
     jr main_loop
 
 main_menu:
@@ -160,6 +164,44 @@ _mt_wait:
     ld (menu_dirty), a
     jp main_loop
 
+main_lost:
+    ;; Framework window over the board, drawn once, then back to level select
+    ld a, (game_dirty)
+    or a
+    jr z, _ml_wait
+    xor a
+    ld (game_dirty), a
+    ld ix, #lost_window
+    call fwk_window_draw
+    ld hl, #str_lost_1            ; 12 chars: column 40 - 12
+    ld b, #86
+    ld c, #28
+    call _main_draw_text_at
+    ld hl, #str_lost_2            ; 9 chars
+    ld b, #98
+    ld c, #31
+    call _main_draw_text_at
+    ld hl, #str_press_key         ; 13 chars
+    ld b, #110
+    ld c, #27
+    call _main_draw_text_at
+_ml_wait:
+    ld a, (fwk_input_pressed)
+    or a
+    jp z, main_loop
+    ld a, #STATE_LEVEL_SELECT
+    ld (game_state), a
+    ld a, #1
+    ld (menu_dirty), a
+    jp main_loop
+
+;; fwk_window descriptor (x, y.w, width, height, border, fill): bytes 20..59,
+;; lines 80..119, over the board. Red border (pen 4), dark blue fill (pen 14).
+lost_window: .db 20
+    .dw 80
+    .db 40, 40, 0x30, 0x3F
+str_lost_1: .asciz "NO CAT THERE"
+str_lost_2: .asciz "GAME OVER"
 str_press_key: .asciz "PRESS ANY KEY"
 
 _main_draw_text:

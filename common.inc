@@ -27,7 +27,8 @@
 .globl catdoku_grid, catdoku_cats, catdoku_found, catdoku_marks
 .globl catdoku_temp_row, catdoku_temp_col, catdoku_temp_val
 .globl catdoku_decomp_buffer, catdoku_level_table, catdoku_levels_packed
-.globl save_load, save_is_completed, save_write, save_get_time
+.globl save_load, save_is_completed, save_write, save_get_time, save_capture_firmware
+.globl catdoku_game_palette
 .globl catdoku_save_buffer, catdoku_save_count
 .globl cpct_setPalette_asm, cpct_drawSolidBox_asm, cpct_px2byteM0_asm
 
@@ -40,6 +41,7 @@ STATE_GAME = 2
 STATE_VICTORY = 3
 STATE_SAVE = 4
 STATE_TIMEUP = 5
+STATE_LOST = 6                    ; a cat on a cell without one: game over
 
 ;; ---- Input actions (bit positions) ----
 INPUT_UP = 0x01
