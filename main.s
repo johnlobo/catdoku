@@ -23,13 +23,12 @@ _game_palette:
 ;;   Enters state machine loop.
 ;; ----------------------------------------------------------------------------
 _main::
-    ;; Initialize disk first (before system init disables firmware)
+    ;; Initialize disk first (before system init disables firmware); it also
+    ;; keeps the firmware interrupt that fwk_disk_save needs later
     call fwk_disk_init
 
     ;; Load save file while firmware is still available (creates if missing)
     call save_load
-    ;; Keep the firmware interrupt vector for later disc writes
-    call save_capture_firmware
 
     ;; Initialize project (disables firmware and installs IRQ handler)
     call fwk_project_init

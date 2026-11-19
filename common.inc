@@ -3,18 +3,19 @@
 
 .include "assets/generated/assets.inc"
 .include "video/sprite.inc"
+.include "resources/disk.inc"
 .globl fwk_project_init, fwk_system_wait_frame, fwk_system_frame_count
 .globl catdoku_palette, catdoku_cat_pixels, catdoku_mark_pixels, catdoku_cell_pixels, catdoku_cursor_pixels
 .globl catdoku_sprites
 .globl fwk_video_init, fwk_video_clear_visible, fwk_video_get_ptr, fwk_video_plot_byte
-.globl fwk_text_init, fwk_text_draw, fwk_text_set_color, fwk_text_draw_small_u8, fwk_text_draw_small_digit, fwk_text_set_colors
+.globl fwk_text_init, fwk_text_draw, fwk_text_draw_centered, fwk_text_draw_clear, fwk_text_set_color, fwk_text_draw_small_u8, fwk_text_draw_small_digit, fwk_text_set_colors
 ;; Internal text variables not exported - use fwk_text_set_color and fwk_text_draw_small_u8 instead
-.globl fwk_input_init, fwk_input_set_bindings, fwk_input_update, fwk_input_held, fwk_input_pressed, fwk_input_released
+.globl fwk_input_init, fwk_input_set_bindings, fwk_input_update, fwk_input_held, fwk_input_pressed, fwk_input_released, fwk_input_repeat
 .globl fwk_window_capture, fwk_window_draw, fwk_window_restore
 .globl fwk_sprite_draw, fwk_sprite_draw_masked, fwk_sprite_draw_masked_recolor
 .globl fwk_transparency_draw
 .globl fwk_zx7b_unpack
-.globl fwk_disk_init, fwk_disk_load
+.globl fwk_disk_init, fwk_disk_load, fwk_disk_save
 .globl fwk_audio_init_music, fwk_audio_init_sfx, fwk_audio_start, fwk_audio_stop, fwk_audio_play_sfx
 .globl audio_songStart, audio_sfxSoundEffects
 .globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
@@ -28,7 +29,7 @@
 .globl catdoku_grid, catdoku_cats, catdoku_found, catdoku_marks
 .globl catdoku_temp_row, catdoku_temp_col, catdoku_temp_val
 .globl catdoku_decomp_buffer, catdoku_level_table, catdoku_levels_packed
-.globl save_load, save_is_completed, save_write, save_get_time, save_capture_firmware
+.globl save_load, save_is_completed, save_write, save_get_time
 .globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings
 .globl catdoku_game_palette
 .globl catdoku_save_buffer, catdoku_save_count
@@ -64,9 +65,6 @@ INPUT_HINT = 0x40
 INPUT_BACK = 0x80
 
 ;; ---- Cursor key repeat (frames, 50 per second) ----
-MOVE_REPEAT_DELAY = 15            ; held this long before the first repeat
-MOVE_REPEAT_RATE = 4              ; then one step every 4 frames
-MOVE_REPEAT_LIMIT = 19            ; MOVE_REPEAT_DELAY + MOVE_REPEAT_RATE (sdas)
 
 ;; ---- Cell types ----
 CELL_EMPTY = 0
