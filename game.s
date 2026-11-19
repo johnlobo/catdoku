@@ -13,6 +13,8 @@
 
 cursor_row:: .db 0
 cursor_col:: .db 0
+move_keys: .db 0                  ; cursor bits for this frame (pressed or repeated)
+move_repeat: .db 0                ; frames a cursor key has been held
 am_cat_row: .db 0                 ; AUTO MARK: the cat just placed
 am_cat_col: .db 0
 am_region: .db 0
@@ -134,7 +136,7 @@ _gu_time_expired:
 _gu_time_ok: nop
 
     ;; Handle input
-    ld a, (fwk_input_pressed)
+    call _game_move_keys
     ;; UP
     bit 0, a
     jr z, _gu_down
@@ -149,7 +151,7 @@ _gu_time_ok: nop
     call _game_render_cursor
 
 _gu_down:
-    ld a, (fwk_input_pressed)
+    ld a, (move_keys)
     bit 1, a
     jr z, _gu_left
     ld a, (cursor_row)
@@ -166,7 +168,7 @@ _gu_down:
     call _game_render_cursor
 
 _gu_left:
-    ld a, (fwk_input_pressed)
+    ld a, (move_keys)
     bit 2, a
     jr z, _gu_right
     ld a, (cursor_col)
@@ -180,7 +182,7 @@ _gu_left:
     call _game_render_cursor
 
 _gu_right:
-    ld a, (fwk_input_pressed)
+    ld a, (move_keys)
     bit 3, a
     jr z, _gu_cat
     ld a, (cursor_col)
@@ -830,6 +832,46 @@ _gam_next_row:
     ld hl, #am_row
     inc (hl)
     jp _gam_row
+
+;; ----------------------------------------------------------------------------
+;; _game_move_keys
+;;   Out: A = move_keys = cursor bits (UP/DOWN/LEFT/RIGHT) to act on this
+;;   frame: the keys just pressed, plus the held ones once they have been
+;;   down MOVE_REPEAT_DELAY frames, then every MOVE_REPEAT_RATE frames.
+;;   Modifies: AF, B.
+;; ----------------------------------------------------------------------------
+_game_move_keys:
+    ld a, (fwk_input_held)
+    and #INPUT_UP | INPUT_DOWN | INPUT_LEFT | INPUT_RIGHT
+    jr nz, _gmk_held
+    ld (move_repeat), a           ; nothing held: restart the delay
+    ld (move_keys), a
+    ret
+_gmk_held:
+    ld b, a                       ; B = held cursor bits
+    ld a, (fwk_input_pressed)
+    and #INPUT_UP | INPUT_DOWN | INPUT_LEFT | INPUT_RIGHT
+    jr z, _gmk_repeat
+    ld (move_keys), a             ; a new press: move now, restart the delay
+    xor a
+    ld (move_repeat), a
+    ld a, (move_keys)
+    ret
+_gmk_repeat:
+    ld a, (move_repeat)
+    inc a
+    cp #MOVE_REPEAT_LIMIT
+    jr c, _gmk_count
+    ld a, #MOVE_REPEAT_DELAY      ; keep cycling inside the repeat period
+_gmk_count:
+    ld (move_repeat), a
+    cp #MOVE_REPEAT_DELAY
+    ld a, #0
+    jr nz, _gmk_out
+    ld a, b                       ; delay over / one more period: repeat
+_gmk_out:
+    ld (move_keys), a
+    ret
 
 _game_render_cursor:
     ld a, #CURSOR_BYTE

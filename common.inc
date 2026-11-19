@@ -62,6 +62,11 @@ INPUT_MARK = 0x20
 INPUT_HINT = 0x40
 INPUT_BACK = 0x80
 
+;; ---- Cursor key repeat (frames, 50 per second) ----
+MOVE_REPEAT_DELAY = 15            ; held this long before the first repeat
+MOVE_REPEAT_RATE = 4              ; then one step every 4 frames
+MOVE_REPEAT_LIMIT = 19            ; MOVE_REPEAT_DELAY + MOVE_REPEAT_RATE (sdas)
+
 ;; ---- Cell types ----
 CELL_EMPTY = 0
 CELL_CAT = 1
