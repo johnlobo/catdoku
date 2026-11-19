@@ -465,23 +465,15 @@ _ls_clear_byte:
     jr nz, _ls_clear_line
     ret
 
-;; In: HL = string, B = line. Draws it centred (column = 40 - length).
+;; In: HL = string, B = line. Draws it centred (fwk_text_draw_centered).
 _menu_draw_centered:
     push hl
+    ld l, b
+    ld h, #0
     ld c, #0
-_mdc_len:
-    ld a, (hl)
-    or a
-    jr z, _mdc_go
-    inc hl
-    inc c
-    jr _mdc_len
-_mdc_go:
-    pop hl
-    ld a, #40
-    sub c
-    ld c, a
-    jp _menu_draw_text_at
+    call fwk_video_get_ptr
+    pop iy
+    jp fwk_text_draw_centered
 
 _menu_draw_text:
     ;; In: HL = string ptr, B = scanline Y (column 4)
@@ -504,7 +496,6 @@ _menu_draw_text_at:
     pop iy
     jp fwk_text_draw
 
-;; AUTO MARK:ON / AUTO MARK:OFF on the third line (13 characters: 40 - 13)
 ;; ----------------------------------------------------------------------------
 ;; rules_update
 ;;   STATE_RULES: the rules screen, drawn once (menu_dirty), any key goes
@@ -536,18 +527,7 @@ _ru_line:
     call fwk_text_set_color
     pop bc
     pop hl                        ; HL = string
-    push hl
-    ld c, #40                     ; column = 40 - length: centred
-_ru_len:
-    ld a, (hl)
-    or a
-    jr z, _ru_draw
-    dec c
-    inc hl
-    jr _ru_len
-_ru_draw:
-    pop hl
-    call _menu_draw_text_at
+    call _menu_draw_centered
     pop hl
     jr _ru_line
 _ru_wait:
@@ -594,24 +574,21 @@ str_rules_7: .asciz "A CAT IN THE WRONG CELL ENDS THE GAME"
 str_rules_key: .asciz "PRESS ANY KEY"
 
 _menu_draw_auto_mark:
-    ;; Clear the old text first: fwk_text_draw does not paint spaces
+    ;; "AUTO MARK:ON" over "AUTO MARK:OFF": clear 13 cells, then draw
     ld hl, #MENU_ITEM_Y3
     ld c, #27
     call fwk_video_get_ptr
-    ex de, hl
-    xor a
-    ld b, #9                      ; FWK_TEXT_FONT_HEIGHT
-    ld c, #26
-    call cpct_drawSolidBox_asm
+    push hl
     call save_get_auto_mark
-    ld hl, #str_menu_auto_off
+    ld iy, #str_menu_auto_off
     or a
     jr z, _mdam_draw
-    ld hl, #str_menu_auto_on
+    ld iy, #str_menu_auto_on
 _mdam_draw:
-    ld b, #MENU_ITEM_Y3
-    ld c, #27
-    jp _menu_draw_text_at
+    pop hl
+    ld b, #13
+    ld c, #0
+    jp fwk_text_draw_clear
 
 _menu_sel_y:
     ;; In: none; uses menu_selection

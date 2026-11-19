@@ -1,10 +1,10 @@
 ;; save.s - Save/load progress for Catdoku
-;; Reads CATDOKU.SAV at boot (fwk_disk_load) and writes it after every
-;; completed level, switching the firmware interrupt back on for the write.
+;; Reads CATDOKU.SAV at boot (fwk_disk_load) and writes it with fwk_disk_save
+;; after every completed level and option change.
 
 .module game_save
 .globl catdoku_save_buffer, catdoku_save_count, catdoku_save_loaded
-.globl save_load, save_is_completed, save_write, save_get_time, save_capture_firmware
+.globl save_load, save_is_completed, save_write, save_get_time
 .globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings
 .include "common.inc"
 
@@ -38,23 +38,20 @@ save_msg_window: .db 24
     .db SAVE_MSG_WIDTH, SAVE_MSG_HEIGHT, 0x3C, 0x3F
 save_msg_background: .ds SAVE_MSG_WIDTH * SAVE_MSG_HEIGHT
 
-;; Firmware calls (CPC 6128 jumpblock)
-CAS_OUT_OPEN = 0xBC8C
-CAS_OUT_CLOSE = 0xBC8F
-CAS_OUT_DIRECT = 0xBC98
-SCR_SET_INK = 0xBC32              ; A = pen, B = C = firmware colour
-SCR_SET_BORDER = 0xBC38           ; B = C = firmware colour
-MC_SET_MODE = 0xBD1C              ; A = mode, screen not cleared
-BORDER_FW_COLOUR = 1              ; blue, the border the game keeps
-FILE_TYPE_BINARY = 2
-IRQ_VECTOR = 0x0038               ; JP <handler>, 3 bytes
-
-;; catdoku_game_palette as firmware colour numbers (assets/palette.json), so
-;; the firmware's frame interrupt keeps the game's inks while it runs.
-save_palette_fw: .db 0, 8, 13, 3, 6, 15, 24, 16, 9, 12, 20, 14, 2, 4, 1, 26
-firmware_vector: .ds 3            ; 0x0038..0x003A as the firmware left them
-game_vector: .ds 3                ; ours, while the firmware runs
-save_disk_buffer: .ds 2048        ; CAS OUT OPEN work buffer (must be above 0x4000)
+;; fwk_disk_save descriptor (resources/disk.inc). The firmware keeps Mode 0
+;; and the game's inks while it writes, so the screen does not change.
+save_descriptor:
+    .dw catdoku_save_filename
+    .db catdoku_save_filename_len
+    .dw catdoku_save_buffer
+    .dw SAVE_BUFFER_SIZE
+    .dw save_disk_buffer
+    .dw save_palette_fw
+    .db 0
+;; catdoku_game_palette as firmware colour numbers (assets/palette.json), then
+;; the border (blue).
+save_palette_fw: .db 0, 8, 13, 3, 6, 15, 24, 16, 9, 12, 20, 14, 2, 4, 1, 26, 1
+save_disk_buffer: .ds FWK_DISK_BUFFER_SIZE
 
 ;; ---- Code area ----
 .area _CODE
@@ -248,81 +245,17 @@ save_write_settings::
     jp _save_message_hide
 
 ;; ----------------------------------------------------------------------------
-;; save_capture_firmware
-;;   Call once at boot, before fwk_project_init: keeps the firmware interrupt
-;;   vector so the disc can be written later. Modifies: BC, DE, HL.
-;; ----------------------------------------------------------------------------
-save_capture_firmware::
-    ld hl, #IRQ_VECTOR
-    ld de, #firmware_vector
-    ld bc, #3
-    ldir
-    ret
-
-;; ----------------------------------------------------------------------------
 ;; _save_write_disk
-;;   Writes catdoku_save_buffer to CATDOKU.SAV. cpct_disableFirmware only
-;;   replaced the JP at 0x0038 and the firmware RAM (0xA700-0xBFFF) is intact,
-;;   so putting the firmware vector back is enough for AMSDOS to run. Music
-;;   and the frame counter stop while it writes. A disc error ends the write
-;;   (no retry). Modifies: AF, BC, DE, HL, IX, IY.
+;;   Writes catdoku_save_buffer to CATDOKU.SAV. A disc error is ignored (no
+;;   retry): progress stays in memory. Music and the frame counter stop while
+;;   it writes. Modifies: AF, BC, DE, HL.
 ;; ----------------------------------------------------------------------------
 _save_write_disk:
-    di
-    ld hl, #IRQ_VECTOR
-    ld de, #game_vector
-    ld bc, #3
-    ldir
-    ld hl, #firmware_vector
-    ld de, #IRQ_VECTOR
-    ld bc, #3
-    ldir
-    ei
-    ;; The firmware interrupt re-applies its mode and inks every frame: give it
-    ;; the game's ones first, so the screen does not change during the write.
-    xor a
-    call MC_SET_MODE
-    ld hl, #save_palette_fw
-    xor a                         ; pen
-_swd_ink:
-    push af
-    push hl
-    ld b, (hl)
-    ld c, b
-    call SCR_SET_INK
-    pop hl
-    pop af
-    inc hl
-    inc a
-    cp #16
-    jr nz, _swd_ink
-    ld b, #BORDER_FW_COLOUR
-    ld c, b
-    call SCR_SET_BORDER
-    ld hl, #catdoku_save_filename
-    ld b, #catdoku_save_filename_len
-    ld de, #save_disk_buffer
-    call CAS_OUT_OPEN
-    jr nc, _swd_restore
-    ld hl, #catdoku_save_buffer
-    ld de, #SAVE_BUFFER_SIZE
-    ld bc, #0                     ; entry address (data file)
-    ld a, #FILE_TYPE_BINARY
-    call CAS_OUT_DIRECT
-    call CAS_OUT_CLOSE
-_swd_restore:
-    di
-    ld hl, #game_vector
-    ld de, #IRQ_VECTOR
-    ld bc, #3
-    ldir
-    ei
-    ;; Back on the game's interrupt: set Mode 0 and the palette through the
-    ;; hardware again (the firmware calls above only changed its own tables).
-    call fwk_video_init
-    ld hl, #catdoku_game_palette
-    ld de, #16
-    jp cpct_setPalette_asm
+    push ix
+    ld ix, #save_descriptor
+    call fwk_disk_save
+    pop ix
+    ret
 
 _save_store:
     ld a, (sw_level)
