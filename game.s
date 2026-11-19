@@ -13,6 +13,11 @@
 
 cursor_row:: .db 0
 cursor_col:: .db 0
+am_cat_row: .db 0                 ; AUTO MARK: the cat just placed
+am_cat_col: .db 0
+am_region: .db 0
+am_row: .db 0                     ; AUTO MARK: cell being checked
+am_col: .db 0
 cursor_paint: .db 0        ; byte written into the frame pixels (CURSOR_BYTE or 0)
 cursor_x: .db 0            ; first frame byte of the current line
 cursor_y: .db 0            ; top line of the frame
@@ -219,6 +224,7 @@ _gu_cat_ok:
     ld b, #15
     ld c, #0
     call fwk_audio_play_sfx
+    call _game_auto_mark
 
 _gu_mark:
     ld a, (fwk_input_pressed)
@@ -662,6 +668,97 @@ _gcc_done:
 ;; Drawing and erasing write only the frame pixels; nothing else is touched.
 ;; Modifies: AF, BC, DE, HL.
 ;; ----------------------------------------------------------------------------
+;; ----------------------------------------------------------------------------
+;; _game_auto_mark
+;;   AUTO MARK option (main menu): after a right cat at the cursor, every empty
+;;   cell of its row, its column, its region and its 8 neighbours gets an X,
+;;   the cells where no other cat can go. Cats are never removed, so the
+;;   marks never need undoing. Does nothing when the option is off.
+;;   Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+_game_auto_mark:
+    call save_get_auto_mark
+    or a
+    ret z
+    ld a, (cursor_row)
+    ld (am_cat_row), a
+    ld b, a
+    ld a, (cursor_col)
+    ld (am_cat_col), a
+    ld c, a
+    call board_get_cell           ; A = region of the cat
+    ld (am_region), a
+    xor a
+    ld (am_row), a
+_gam_row:
+    ld a, (catdoku_n)
+    ld hl, #am_row
+    cp (hl)
+    jp z, _game_render_cursor     ; done: the redraws may have hit the frame
+    xor a
+    ld (am_col), a
+_gam_col:
+    ld a, (catdoku_n)
+    ld hl, #am_col
+    cp (hl)
+    jp z, _gam_next_row
+    ld a, (am_row)
+    ld b, a
+    ld a, (am_col)
+    ld c, a
+    call board_get_mark
+    or a                          ; only CELL_EMPTY cells change
+    jp nz, _gam_next_col
+    ld a, (am_row)                ; same row
+    ld hl, #am_cat_row
+    cp (hl)
+    jr z, _gam_mark
+    ld a, (am_col)                ; same column
+    ld hl, #am_cat_col
+    cp (hl)
+    jr z, _gam_mark
+    ld a, (am_row)                ; neighbour: row - cat_row + 1 in 0..2 ...
+    ld hl, #am_cat_row
+    sub (hl)
+    inc a
+    cp #3
+    jr nc, _gam_region
+    ld a, (am_col)                ; ... and col - cat_col + 1 in 0..2
+    ld hl, #am_cat_col
+    sub (hl)
+    inc a
+    cp #3
+    jr c, _gam_mark
+_gam_region:
+    ld a, (am_row)
+    ld b, a
+    ld a, (am_col)
+    ld c, a
+    call board_get_cell
+    ld hl, #am_region
+    cp (hl)
+    jp nz, _gam_next_col
+_gam_mark:
+    ld a, (am_row)
+    ld b, a
+    ld a, (am_col)
+    ld c, a
+    ld d, #CELL_MARK
+    call board_set_cell
+    ld a, (am_row)
+    ld b, a
+    ld a, (am_col)
+    ld c, a
+    call _game_redraw_cell
+_gam_next_col:
+    ld hl, #am_col
+    inc (hl)
+    jp _gam_col
+_gam_next_row:
+    ld hl, #am_row
+    inc (hl)
+    jp _gam_row
+
 _game_render_cursor:
     ld a, #CURSOR_BYTE
     jr _game_paint_cursor

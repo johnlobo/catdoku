@@ -9,7 +9,7 @@
 ;; ---- Data area ----
 .area _DATA
 
-menu_selection:: .db 0       ; current menu item: 0 NEW GAME, 1 CONTINUE
+menu_selection:: .db 0       ; current menu item: 0 NEW GAME, 1 CONTINUE, 2 AUTO MARK
 menu_dirty:: .db 1           ; redraw only when set
 level_select_diff:: .db 0     ; current difficulty (0-4)
 level_select_item:: .db 0     ; current level within difficulty (0-39)
@@ -18,6 +18,8 @@ game_state:: .db 0           ; global game state (STATE_*)
 str_menu_title:: .asciz "CATDOKU"
 str_menu_new:: .asciz "NEW GAME"
 str_menu_cont:: .asciz "CONTINUE"
+str_menu_auto_on: .asciz "AUTO MARK:ON"
+str_menu_auto_off: .asciz "AUTO MARK:OFF"
 str_ls_title: .asciz "SELECT LEVEL"
 str_ls_best: .asciz "BEST:"
 str_ls_none: .asciz "--"
@@ -67,7 +69,7 @@ _mu_down:
     bit 1, a            ; DOWN
     jr z, _mu_enter
     ld a, (menu_selection)
-    cp #1                         ; last item: CONTINUE
+    cp #2                         ; last item: AUTO MARK
     jr z, _mu_enter
     call _menu_toggle_indicator
     ld a, (menu_selection)
@@ -81,6 +83,17 @@ _mu_enter:
     ld a, (menu_selection)
     or a
     jr z, _mu_new
+    cp #2
+    jr nz, _mu_continue
+    ;; AUTO MARK: flip it, show it, keep it on the disc
+    call save_toggle_auto_mark
+    call _menu_draw_auto_mark
+    call save_write_settings
+    ld a, #SFX_NAV
+    ld b, #10
+    ld c, #1
+    jp fwk_audio_play_sfx
+_mu_continue:
     ;; CONTINUE: open level select on the first level not completed
     ld c, #0
 _mu_cont_loop:
@@ -143,6 +156,7 @@ _mu_check_dirty:
     ld b, #160
     ld c, #32
     call _menu_draw_text_at
+    call _menu_draw_auto_mark
     ;; Selection indicator (XOR marker)
     call _menu_toggle_indicator
     ret
@@ -477,6 +491,27 @@ _menu_draw_text_at:
     pop iy
     jp fwk_text_draw
 
+;; AUTO MARK:ON / AUTO MARK:OFF on the third line (13 characters: 40 - 13)
+_menu_draw_auto_mark:
+    ;; Clear the old text first: fwk_text_draw does not paint spaces
+    ld hl, #180
+    ld c, #27
+    call fwk_video_get_ptr
+    ex de, hl
+    xor a
+    ld b, #9                      ; FWK_TEXT_FONT_HEIGHT
+    ld c, #26
+    call cpct_drawSolidBox_asm
+    call save_get_auto_mark
+    ld hl, #str_menu_auto_off
+    or a
+    jr z, _mdam_draw
+    ld hl, #str_menu_auto_on
+_mdam_draw:
+    ld b, #180
+    ld c, #27
+    jp _menu_draw_text_at
+
 _menu_sel_y:
     ;; In: none; uses menu_selection
     ;; Out: A = scanline Y (140 + selection*20)
@@ -510,7 +545,7 @@ _mt_row:
     add a, b
     ld l, a
     ld h, #0
-    ld c, #25                    ; marker left of the centred items
+    ld c, #22                    ; marker left of the centred items
     call fwk_video_get_ptr       ; HL = dest
     push hl
     ; sprite row pointer = catdoku_cat_pixels + row*4

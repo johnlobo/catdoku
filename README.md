@@ -13,6 +13,9 @@ El objetivo: colocar n gatos, uno por región, fila y columna, sin que dos se to
 - **H**: pista (muestra un gato no encontrado)
 - **ESC**: volver al menú
 
+## AUTO MARK
+Opción del menú principal (RETURN la activa o desactiva; se guarda en `CATDOKU.SAV`). Al poner un gato correcto, marca con X las casillas vacías de su fila, su columna, su región y sus 8 vecinas.
+
 ## Estructura del proyecto
 - `main.s` - Punto de entrada y máquina de estados
 - `menu.s` - Menú principal y selección de nivel
