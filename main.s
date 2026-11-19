@@ -91,6 +91,8 @@ main_loop:
     jr z, main_timeup
     cp #STATE_LOST
     jp z, main_lost               ; too far for jr
+    cp #STATE_RULES
+    jp z, main_rules
     jr main_loop
 
 main_menu:
@@ -100,6 +102,10 @@ main_menu:
 main_level_select:
     call level_select_update
     jr main_loop
+
+main_rules:
+    call rules_update
+    jp main_loop
 
 main_game:
     call game_update

@@ -18,6 +18,7 @@ game_state:: .db 0           ; global game state (STATE_*)
 str_menu_title:: .asciz "CATDOKU"
 str_menu_new:: .asciz "NEW GAME"
 str_menu_cont:: .asciz "CONTINUE"
+str_menu_rules: .asciz "RULES"
 str_menu_auto_on: .asciz "AUTO MARK:ON"
 str_menu_auto_off: .asciz "AUTO MARK:OFF"
 str_ls_title: .asciz "SELECT LEVEL"
@@ -69,7 +70,7 @@ _mu_down:
     bit 1, a            ; DOWN
     jr z, _mu_enter
     ld a, (menu_selection)
-    cp #2                         ; last item: AUTO MARK
+    cp #3                         ; last item: AUTO MARK
     jr z, _mu_enter
     call _menu_toggle_indicator
     ld a, (menu_selection)
@@ -84,6 +85,8 @@ _mu_enter:
     or a
     jr z, _mu_new
     cp #2
+    jr z, _mu_rules
+    cp #3
     jr nz, _mu_continue
     ;; AUTO MARK: flip it, show it, keep it on the disc
     call save_toggle_auto_mark
@@ -93,6 +96,12 @@ _mu_enter:
     ld b, #10
     ld c, #1
     jp fwk_audio_play_sfx
+_mu_rules:
+    ld a, #STATE_RULES
+    ld (game_state), a
+    ld a, #1
+    ld (menu_dirty), a
+    ret
 _mu_continue:
     ;; CONTINUE: open level select on the first level not completed
     ld c, #0
@@ -149,12 +158,16 @@ _mu_check_dirty:
     call _menu_draw_text_at
     ;; Options centered in bottom third
     ld hl, #str_menu_new
-    ld b, #140
+    ld b, #MENU_ITEM_Y
     ld c, #32                     ; centred: 40 - length
     call _menu_draw_text_at
     ld hl, #str_menu_cont
-    ld b, #160
+    ld b, #MENU_ITEM_Y1
     ld c, #32
+    call _menu_draw_text_at
+    ld hl, #str_menu_rules
+    ld b, #MENU_ITEM_Y2
+    ld c, #35                     ; 5 characters
     call _menu_draw_text_at
     call _menu_draw_auto_mark
     ;; Selection indicator (XOR marker)
@@ -492,9 +505,97 @@ _menu_draw_text_at:
     jp fwk_text_draw
 
 ;; AUTO MARK:ON / AUTO MARK:OFF on the third line (13 characters: 40 - 13)
+;; ----------------------------------------------------------------------------
+;; rules_update
+;;   STATE_RULES: the rules screen, drawn once (menu_dirty), any key goes
+;;   back to the main menu. The big font has no "," or ".": one idea per line.
+;; ----------------------------------------------------------------------------
+rules_update::
+    ld a, (menu_dirty)
+    or a
+    jr z, _ru_wait
+    xor a
+    ld (menu_dirty), a
+    call fwk_video_clear_visible
+    ld hl, #rules_lines
+_ru_line:
+    ld a, (hl)                    ; scanline, 0 ends the table
+    or a
+    jr z, _ru_wait
+    ld b, a
+    inc hl
+    ld a, (hl)                    ; text colour
+    inc hl
+    ld e, (hl)
+    inc hl
+    ld d, (hl)                    ; DE = string
+    inc hl
+    push hl
+    push de
+    push bc
+    call fwk_text_set_color
+    pop bc
+    pop hl                        ; HL = string
+    push hl
+    ld c, #40                     ; column = 40 - length: centred
+_ru_len:
+    ld a, (hl)
+    or a
+    jr z, _ru_draw
+    dec c
+    inc hl
+    jr _ru_len
+_ru_draw:
+    pop hl
+    call _menu_draw_text_at
+    pop hl
+    jr _ru_line
+_ru_wait:
+    ld a, (fwk_input_pressed)
+    or a
+    ret z
+    ld a, #TEXT_WHITE
+    call fwk_text_set_color
+    ld a, #STATE_MENU
+    ld (game_state), a
+    ld a, #1
+    ld (menu_dirty), a
+    ret
+
+;; scanline, colour, string; 0 ends
+rules_lines:
+    .db 20, TEXT_YELLOW
+    .dw str_rules_title
+    .db 50, TEXT_WHITE
+    .dw str_rules_1
+    .db 62, TEXT_WHITE
+    .dw str_rules_2
+    .db 74, TEXT_WHITE
+    .dw str_rules_3
+    .db 98, TEXT_WHITE
+    .dw str_rules_4
+    .db 110, TEXT_WHITE
+    .dw str_rules_5
+    .db 134, TEXT_WHITE
+    .dw str_rules_6
+    .db 146, TEXT_WHITE
+    .dw str_rules_7
+    .db 180, TEXT_LABEL
+    .dw str_rules_key
+    .db 0
+str_rules_title: .asciz "RULES"
+str_rules_1: .asciz "PLACE ONE CAT IN EVERY ROW"
+str_rules_2: .asciz "IN EVERY COLUMN"
+str_rules_3: .asciz "AND IN EVERY COLOUR REGION"
+str_rules_4: .asciz "CATS NEVER TOUCH EACH OTHER"
+str_rules_5: .asciz "NOT EVEN DIAGONALLY"
+str_rules_6: .asciz "NO GUESSING NEEDED: MARK WITH X"
+str_rules_7: .asciz "A CAT IN THE WRONG CELL ENDS THE GAME"
+str_rules_key: .asciz "PRESS ANY KEY"
+
 _menu_draw_auto_mark:
     ;; Clear the old text first: fwk_text_draw does not paint spaces
-    ld hl, #180
+    ld hl, #MENU_ITEM_Y3
     ld c, #27
     call fwk_video_get_ptr
     ex de, hl
@@ -508,24 +609,24 @@ _menu_draw_auto_mark:
     jr z, _mdam_draw
     ld hl, #str_menu_auto_on
 _mdam_draw:
-    ld b, #180
+    ld b, #MENU_ITEM_Y3
     ld c, #27
     jp _menu_draw_text_at
 
 _menu_sel_y:
     ;; In: none; uses menu_selection
-    ;; Out: A = scanline Y (140 + selection*20)
+    ;; Out: A = scanline Y (MENU_ITEM_Y + selection * MENU_ITEM_STEP)
     ld a, (menu_selection)
     ld b, a
     ld a, #0
     or b
     jr z, _msy_done
-    ld c, #20
+    ld c, #MENU_ITEM_STEP
 _msy_mul:
     add a, c
     djnz _msy_mul
 _msy_done:
-    add a, #140
+    add a, #MENU_ITEM_Y
     ret
 
 _menu_toggle_indicator:
