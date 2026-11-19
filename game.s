@@ -18,6 +18,11 @@ am_cat_col: .db 0
 am_region: .db 0
 am_row: .db 0                     ; AUTO MARK: cell being checked
 am_col: .db 0
+fc_region: .db 0                  ; _game_fill_cell: region of the cell
+fc_right: .db 0                   ; 1: right neighbour in the same region
+fc_down: .db 0                    ; 1: cell below in the same region
+fc_corner: .db 0                  ; 1: right, below and diagonal all the same
+fc_lines: .db 0                   ; 6, or 8 when joined downwards
 cursor_paint: .db 0        ; byte written into the frame pixels (CURSOR_BYTE or 0)
 cursor_x: .db 0            ; first frame byte of the current line
 cursor_y: .db 0            ; top line of the frame
@@ -367,11 +372,70 @@ _clear_sec_done: nop
     ret
 
 _game_fill_cell:
-    ;; In: B=row, C=col. Fills 8x8 cell with region color (region+1 pen)
+    ;; In: B=row, C=col. Fills the cell (3 bytes x 6 lines) with its region
+    ;; colour (region+1 pen). The 2-pixel gaps to the right and below are
+    ;; filled too when the neighbour is in the same region, so each region
+    ;; reads as one shape with black lines only on its borders. The gaps hold
+    ;; no sprite pixels (cat and X sit inside the 6x6 area).
     ;; Preserves BC (cpct_px2byteM0_asm destroys B and DE).
     push bc
-    push bc
     call board_get_cell
+    ld (fc_region), a
+    pop bc
+    xor a
+    ld (fc_right), a
+    ld (fc_down), a
+    ld (fc_corner), a
+    ld a, c                       ; right neighbour
+    inc a
+    ld hl, #catdoku_n
+    cp (hl)
+    jr nc, _gfc_no_right
+    push bc
+    inc c
+    call board_get_cell
+    pop bc
+    ld hl, #fc_region
+    cp (hl)
+    jr nz, _gfc_no_right
+    ld a, #1
+    ld (fc_right), a
+_gfc_no_right:
+    ld a, b                       ; neighbour below
+    inc a
+    ld hl, #catdoku_n
+    cp (hl)
+    jr nc, _gfc_joins_done
+    push bc
+    inc b
+    call board_get_cell
+    pop bc
+    ld hl, #fc_region
+    cp (hl)
+    jr nz, _gfc_joins_done
+    ld a, #1
+    ld (fc_down), a
+    ld a, (fc_right)              ; corner: right, below and diagonal
+    or a
+    jr z, _gfc_joins_done
+    push bc
+    inc b
+    inc c
+    call board_get_cell
+    pop bc
+    ld hl, #fc_region
+    cp (hl)
+    jr nz, _gfc_joins_done
+    ld a, #1
+    ld (fc_corner), a
+_gfc_joins_done:
+    ld a, (fc_down)
+    add a, a
+    add a, #6
+    ld (fc_lines), a
+    push bc
+    push bc
+    ld a, (fc_region)
     inc a
     cp #CURSOR_PEN
     jr c, _gfc_pen_ok
@@ -400,7 +464,8 @@ _gfc_pen_ok:
     ld (catdoku_temp_val), a
 _gfc_row:
     ld a, (catdoku_temp_val)
-    cp #6
+    ld hl, #fc_lines
+    cp (hl)
     jr z, _gfc_done
     ld a, (catdoku_temp_row)
     ld b, a
@@ -413,7 +478,14 @@ _gfc_row:
     push de                       ; fwk_video_get_ptr destroys DE, and D holds the colour byte
     call fwk_video_get_ptr
     pop de
-    ld b, #3
+    ld a, (catdoku_temp_val)      ; lines 0..5: 3 bytes + right join
+    cp #6                         ; lines 6..7: 3 bytes + corner
+    ld a, (fc_right)
+    jr c, _gfc_width
+    ld a, (fc_corner)
+_gfc_width:
+    add a, #3
+    ld b, a
 _gfc_byte:
     ld a, d
     ld (hl), a
@@ -762,8 +834,36 @@ _gam_next_row:
 _game_render_cursor:
     ld a, #CURSOR_BYTE
     jr _game_paint_cursor
+;; The frame sits in the gaps between cells, which may hold region joins:
+;; paint it black, then redraw the four cells whose joins it covers.
 _game_erase_cursor:
     xor a
+    call _game_paint_cursor
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    call _gec_cell                ; (row, col): right and bottom gaps
+    dec c
+    call _gec_cell                ; (row, col-1): left gap
+    dec b
+    call _gec_cell                ; (row-1, col-1): top-left corner
+    inc c
+    jp _gec_cell                  ; (row-1, col): top gap
+
+;; B=row, C=col (0xFF when off the board: skipped). Preserves BC.
+_gec_cell:
+    ld a, b
+    cp #CATDOKU_MAX_N
+    ret nc
+    ld a, c
+    cp #CATDOKU_MAX_N
+    ret nc
+    push bc
+    call _game_redraw_cell
+    pop bc
+    ret
+
 _game_paint_cursor:
     ld (cursor_paint), a
     ld a, (cursor_row)

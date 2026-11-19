@@ -13,6 +13,12 @@ El objetivo: colocar n gatos, uno por región, fila y columna, sin que dos se to
 - **H**: pista (muestra un gato no encontrado)
 - **ESC**: volver al menú
 
+## Menú
+NEW GAME, CONTINUE, RULES (pantalla de reglas) y AUTO MARK.
+
+## Tablero
+Las casillas vecinas de una misma región se dibujan unidas: cada región es una sola forma y las líneas negras marcan sus fronteras.
+
 ## AUTO MARK
 Opción del menú principal (RETURN la activa o desactiva; se guarda en `CATDOKU.SAV`). Al poner un gato correcto, marca con X las casillas vacías de su fila, su columna, su región y sus 8 vecinas.
 

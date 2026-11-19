@@ -18,7 +18,7 @@
 .globl fwk_audio_init_music, fwk_audio_init_sfx, fwk_audio_start, fwk_audio_stop, fwk_audio_play_sfx
 .globl audio_songStart, audio_sfxSoundEffects
 .globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
-.globl menu_update, level_select_update, game_update, game_draw_number_at, help_draw_line, menu_dirty
+.globl menu_update, level_select_update, rules_update, game_update, game_draw_number_at, help_draw_line, menu_dirty
 .globl str_game_time
 .globl str_game_victory
 .globl str_timeup
@@ -43,6 +43,14 @@ STATE_VICTORY = 3
 STATE_SAVE = 4
 STATE_TIMEUP = 5
 STATE_LOST = 6                    ; a cat on a cell without one: game over
+STATE_RULES = 7                   ; rules screen, from the main menu
+
+;; ---- Main menu: NEW GAME, CONTINUE, RULES, AUTO MARK ----
+MENU_ITEM_Y = 120
+MENU_ITEM_STEP = 18
+MENU_ITEM_Y1 = 138                ; MENU_ITEM_Y + 1 step (sdas: no precedence)
+MENU_ITEM_Y2 = 156
+MENU_ITEM_Y3 = 174
 
 ;; ---- Input actions (bit positions) ----
 INPUT_UP = 0x01
