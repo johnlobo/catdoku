@@ -453,13 +453,16 @@ _gfc_pen_ok:
     sla a
     sla a
     sla a
-    add a, #81
+    ld hl, #board_y               ; first filled line: board_y + 1
+    add a, (hl)
+    inc a
     ld (catdoku_temp_row), a
     ; start column (bytes) = 30 + col*4
     ld a, c
     sla a
     sla a
-    add a, #30
+    ld hl, #board_x
+    add a, (hl)
     ld (catdoku_temp_col), a
     ; fill 6 scanlines
     xor a
@@ -547,7 +550,8 @@ _grc_cat:
     ld a, c
     sla a
     sla a               ; X in bytes: 4 bytes per cell
-    add a, #CATDOKU_BOARD_OFFSET_X
+    ld hl, #board_x
+    add a, (hl)
     ld (sprite_cat_desc + FWK_SPRITE_X), a
     xor a
     ld (sprite_cat_desc + FWK_SPRITE_X + 1), a
@@ -555,7 +559,8 @@ _grc_cat:
     sla a
     sla a
     sla a
-    add a, #CATDOKU_BOARD_OFFSET_Y
+    ld hl, #board_y
+    add a, (hl)
     ld (sprite_cat_desc + FWK_SPRITE_Y), a
     xor a
     ld (sprite_cat_desc + FWK_SPRITE_Y + 1), a
@@ -566,7 +571,8 @@ _grc_mark:
     ld a, c
     sla a
     sla a               ; X in bytes: 4 bytes per cell
-    add a, #CATDOKU_BOARD_OFFSET_X
+    ld hl, #board_x
+    add a, (hl)
     ld (sprite_mark_desc + FWK_SPRITE_X), a
     xor a
     ld (sprite_mark_desc + FWK_SPRITE_X + 1), a
@@ -574,7 +580,8 @@ _grc_mark:
     sla a
     sla a
     sla a
-    add a, #CATDOKU_BOARD_OFFSET_Y
+    ld hl, #board_y
+    add a, (hl)
     ld (sprite_mark_desc + FWK_SPRITE_Y), a
     xor a
     ld (sprite_mark_desc + FWK_SPRITE_Y + 1), a
@@ -606,20 +613,22 @@ _grb_col_loop:
     jp z, _grb_next_row
     ;; Save row/col
     push bc
-    ;; Calculate screen X = CATDOKU_BOARD_OFFSET_X + col * 8
+    ;; Calculate screen X = board_x + col * 8
     ld a, c
     sla a
     sla a               ; X in bytes: 4 bytes per cell
-    add a, #CATDOKU_BOARD_OFFSET_X
+    ld hl, #board_x
+    add a, (hl)
     ld (sprite_cell_desc + FWK_SPRITE_X), a
     xor a
     ld (sprite_cell_desc + FWK_SPRITE_X + 1), a
-    ;; Calculate screen Y = CATDOKU_BOARD_OFFSET_Y + row * 8
+    ;; Calculate screen Y = board_y + row * 8
     ld a, b
     sla a
     sla a
     sla a
-    add a, #CATDOKU_BOARD_OFFSET_Y
+    ld hl, #board_y
+    add a, (hl)
     ld (sprite_cell_desc + FWK_SPRITE_Y), a
     xor a
     ld (sprite_cell_desc + FWK_SPRITE_Y + 1), a
@@ -912,12 +921,15 @@ _game_paint_cursor:
     add a, a
     add a, a
     add a, a
-    add a, #CATDOKU_BOARD_OFFSET_Y
+    ld hl, #board_y
+    add a, (hl)
     ld (cursor_y), a
     ld a, (cursor_col)
     add a, a
     add a, a
-    add a, #CATDOKU_BOARD_OFFSET_X - 1
+    ld hl, #board_x
+    add a, (hl)
+    dec a
     ld (cursor_x), a
     ;; top and bottom lines
     ld a, (cursor_y)

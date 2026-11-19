@@ -10,6 +10,8 @@
 
 ;; ---- Data area ----
 .area _DATA
+board_x:: .db 31                 ; screen byte of column 0 (board_load_level)
+board_y:: .db 81                 ; screen line of row 0
 
 ;; Board state (mutable, one level at a time)
 catdoku_n::         .db 0          ; board size n (5..9)
@@ -322,6 +324,19 @@ _bl_clear_marks:
     ld (hl), a
     inc hl
     djnz _bl_clear_marks
+
+    ;; Centre the board: n cells of 4 bytes x 8 lines, whose last gap (1 byte,
+    ;; 2 lines) is empty. board_x = 41 - 2n, board_y = 101 - 4n.
+    ld a, (catdoku_n)
+    add a, a
+    ld b, a                       ; B = 2n
+    ld a, #41
+    sub b
+    ld (board_x), a
+    ld a, #101
+    sub b
+    sub b
+    ld (board_y), a
 
     pop af
     ret
