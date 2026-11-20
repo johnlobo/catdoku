@@ -50,23 +50,35 @@ glasnost test      # integridad del proyecto y compilación
 ```
 
 ## Pruebas
-`tests/test_catdoku.py` contiene comprobaciones en el host (tabla de niveles, constantes) y partidas automáticas en BluePixel headless: AUTO MARK, guardado tras reiniciar, reglas, repetición de cursor, centrado de los cinco tamaños y NEW GAME/CONTINUE.
+`tests/test_catdoku.py` contiene comprobaciones en el host (tabla de niveles, constantes) y partidas automáticas en BluePixel headless: AUTO MARK, guardado tras reiniciar, reglas, repetición de cursor, centrado de los cinco tamaños y del tiempo, NEW GAME/CONTINUE y la migración de un `CATDOKU.SAV` de versión 1.
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-Las pruebas con emulador se saltan si no encuentran BluePixel. Por defecto lo buscan junto a GlasnostFWK (`../BluePixel`); también aceptan `GLASNOST_ROOT`, `BLUEPIXEL_HEADLESS` y `BLUEPIXEL_ROMS`. El proyecto debe estar en una carpeta llamada `catdoku`, porque `glasnost build` lo exige. Con `CATDOKU_SLOW=1` también se regeneran los 200 niveles y se comparan con los del repositorio (unos 3 minutos).
+Las pruebas con emulador se saltan si no encuentran BluePixel. Por defecto lo buscan junto a GlasnostFWK (`../BluePixel`); también aceptan `GLASNOST_ROOT`, `BLUEPIXEL_HEADLESS` y `BLUEPIXEL_ROMS`. El proyecto debe estar en una carpeta llamada `catdoku`, porque `glasnost build` lo exige. Con `CATDOKU_SLOW=1` también se regeneran los 200 niveles y se comparan con los del repositorio (algo más de un minuto).
 
 ## Niveles
 200 niveles pregenerados: 40 por dificultad (Iniciación 5x5, Fácil 6x6, Medio 7x7, Difícil 8x8, Experto 9x9).
-El progreso se guarda en `CATDOKU.SAV` en el DSK.
+El progreso se guarda en `CATDOKU.SAV` en el DSK. Un fichero de la versión 1 (los niveles anteriores a esta curva) pierde al cargarse los niveles completados y los tiempos, porque se refieren a otros tableros, y conserva AUTO MARK.
 
-`generated/catdoku_levels.s` se genera con `scripts/gen_catdoku_levels.py`. Ese script llama a `catdoku/doc/generador_catdoku.py`, la implementación de referencia del compendio, con semillas fijas, y comprime cada nivel con `zx7b`. El resultado es reproducible:
+Técnica más difícil que necesita cada nivel (T1 casillas forzadas, T2 y T3 palomar con una o con dos o tres unidades, T4 probar y descartar):
+
+| Dificultad | Tablero | Técnica | Usos de T4 |
+|---|---|---|---|
+| Iniciación | 5x5 | T1-T2 | 0 |
+| Fácil | 6x6 | T2-T3 | 0 |
+| Medio | 7x7 | T3 | 0 |
+| Difícil | 8x8 | T4 | 1-10 |
+| Experto | 9x9 | T4 | 11 o más |
+
+Dentro de cada dificultad, los 40 niveles van de más fácil a más difícil: primero por usos de T4, luego por técnica y luego por número de pasos.
+
+`generated/catdoku_levels.s` se genera con `scripts/gen_catdoku_levels.py`. Ese script importa `catdoku/doc/generador_catdoku.py`, la implementación de referencia del compendio, acepta cada tablero con las bandas de la tabla (`BANDS`) en lugar de las del compendio, usa semillas fijas y comprime cada nivel con `zx7b`. El resultado es reproducible (algo más de un minuto):
 
 ```sh
 python3 scripts/gen_catdoku_levels.py           # reescribe generated/catdoku_levels.s
-python3 scripts/gen_catdoku_levels.py --check   # falla si cambiaría (unos 3 minutos)
+python3 scripts/gen_catdoku_levels.py --check   # falla si cambiaría
 ```
 
 `zx7b` se toma de `ZX7B`, de `CPCT_PATH` o de `glasnost path`.
