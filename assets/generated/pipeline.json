@@ -1,12 +1,12 @@
 {
-  "hash": "5f3255599a2b89023bb13afca586efefbd9910bdf8b92b804ee775ebce30077b",
+  "hash": "f47d8ad3696940b209c04ffdf4f44ee7de62616f1acfd480c67bf859eb9ccbfc",
   "outputs": {
     "generated/assets.inc": "5f56291674c5e17f6643d3fd19f9be94aff0f4e5a2ef9b0ac28876d492879710",
-    "generated/assets.s": "c7c2dde5a920352b939349303aa5cfde703ec47be5ea2de3b7ffe747084dd8cb"
+    "generated/assets.s": "84996ce117cf91fb5b818ccf7c5bb215d95d35639204dcc815fd767552689f2f"
   },
   "sources": {
     "palette.json": "87539710d4ab22f7e32098dbbfbf47be1385c129223a9a25e07e4a832e1bd2e2",
-    "src/sprites.png": "7c9bc0c90a23f65e03361bdb662f9e02073ec51dd3b5ab7402d0c24b9e00d574"
+    "src/sprites.png": "481bc3b137578cfed556869c909ce5f89825dc153b219150efe9a87a6b0522d4"
   },
   "version": 1
 }

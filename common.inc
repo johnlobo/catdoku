@@ -87,6 +87,8 @@ CATDOKU_CELL_SIZE = 8
 
 ;; ---- Cursor: yellow frame one pixel outside the cell ----
 CURSOR_PEN = 6               ; yellow (HW 0x0A) in _orig_palette
+;; Pen 14 (firmware 1, dark blue) is the X and the cat outline in assets/src/sprites.png:
+;; no region or text colour may use it.
 CURSOR_BYTE = 0x3C           ; pen 6 in both Mode 0 pixels
 ;; Region r is drawn with pen r+1, skipping CURSOR_PEN so no region shares the cursor colour.
 
