@@ -16,6 +16,9 @@ El objetivo: colocar n gatos, uno por región, fila y columna, sin que dos se to
 ## Menú
 NEW GAME, CONTINUE, RULES (pantalla de reglas) y AUTO MARK.
 
+- **NEW GAME**: si hay niveles completados, pide confirmación ("ERASE ALL PROGRESS?", RETURN sí, ESC no) y borra de `CATDOKU.SAV` los niveles completados y los mejores tiempos (AUTO MARK se conserva). Después abre la selección en el primer nivel. Sin progreso no pregunta.
+- **CONTINUE**: abre la selección en el primer nivel no completado. Sale en gris y el cursor la salta mientras no haya ningún nivel completado.
+
 ## Tablero
 Las casillas vecinas de una misma región se dibujan unidas: cada región es una sola forma y las líneas negras marcan sus fronteras.
 

@@ -9,7 +9,7 @@
 ;; ---- Data area ----
 .area _DATA
 
-menu_selection:: .db 0       ; current menu item: 0 NEW GAME, 1 CONTINUE, 2 AUTO MARK
+menu_selection:: .db 0       ; current menu item: 0 NEW GAME, 1 CONTINUE, 2 RULES, 3 AUTO MARK
 menu_dirty:: .db 1           ; redraw only when set
 level_select_diff:: .db 0     ; current difficulty (0-4)
 level_select_item:: .db 0     ; current level within difficulty (0-39)
@@ -19,6 +19,10 @@ str_menu_title:: .asciz "CATDOKU"
 str_menu_new:: .asciz "NEW GAME"
 str_menu_cont:: .asciz "CONTINUE"
 str_menu_rules: .asciz "RULES"
+str_cn_question: .asciz "ERASE ALL PROGRESS?"
+str_cn_detail_1: .asciz "COMPLETED LEVELS AND BEST TIMES"
+str_cn_detail_2: .asciz "WILL BE DELETED"
+str_cn_keys: .asciz "RETURN:YES   ESC:NO"
 str_menu_auto_on: .asciz "AUTO MARK:ON"
 str_menu_auto_off: .asciz "AUTO MARK:OFF"
 str_ls_title: .asciz "SELECT LEVEL"
@@ -63,6 +67,7 @@ menu_update::
     call _menu_toggle_indicator
     ld a, (menu_selection)
     dec a
+    call _menu_skip_continue_up
     ld (menu_selection), a
     call _menu_toggle_indicator
 _mu_down:
@@ -75,6 +80,7 @@ _mu_down:
     call _menu_toggle_indicator
     ld a, (menu_selection)
     inc a
+    call _menu_skip_continue_down
     ld (menu_selection), a
     call _menu_toggle_indicator
 _mu_enter:
@@ -103,7 +109,11 @@ _mu_rules:
     ld (menu_dirty), a
     ret
 _mu_continue:
-    ;; CONTINUE: open level select on the first level not completed
+    ;; CONTINUE: open level select on the first level not completed.
+    ;; Disabled (grey) while no level is completed.
+    ld a, (catdoku_save_count)
+    or a
+    ret z
     ld c, #0
 _mu_cont_loop:
     ld a, c
@@ -132,6 +142,16 @@ _mu_div_done:
     ld (level_select_diff), a
     jr _mu_to_level_select
 _mu_new:
+    ;; NEW GAME with progress on the disc: confirm erasing it first
+    ld a, (catdoku_save_count)
+    or a
+    jr z, _mu_new_start
+    ld a, #STATE_CONFIRM_NEW
+    ld (game_state), a
+    ld a, #1
+    ld (menu_dirty), a
+    ret
+_mu_new_start:
     xor a
     ld (level_select_diff), a
     ld (level_select_item), a
@@ -161,10 +181,26 @@ _mu_check_dirty:
     ld b, #MENU_ITEM_Y
     ld c, #32                     ; centred: 40 - length
     call _menu_draw_text_at
+    ;; CONTINUE in grey, and never selected, while nothing is completed
+    ld a, (catdoku_save_count)
+    or a
+    ld a, #TEXT_WHITE
+    jr nz, _mu_cont_colour
+    ld a, (menu_selection)
+    cp #1
+    jr nz, _mu_cont_grey
+    xor a
+    ld (menu_selection), a
+_mu_cont_grey:
+    ld a, #TEXT_GREY
+_mu_cont_colour:
+    call fwk_text_set_color
     ld hl, #str_menu_cont
     ld b, #MENU_ITEM_Y1
     ld c, #32
     call _menu_draw_text_at
+    ld a, #TEXT_WHITE
+    call fwk_text_set_color
     ld hl, #str_menu_rules
     ld b, #MENU_ITEM_Y2
     ld c, #35                     ; 5 characters
@@ -495,6 +531,83 @@ _menu_draw_text_at:
     call fwk_video_get_ptr
     pop iy
     jp fwk_text_draw
+
+;; In: A = menu item after moving up / down. Out: A, skipping CONTINUE (1)
+;; while it is disabled. Modifies: AF.
+_menu_skip_continue_up:
+    cp #1
+    ret nz
+    ld a, (catdoku_save_count)
+    or a
+    ld a, #1
+    ret nz
+    xor a
+    ret
+_menu_skip_continue_down:
+    cp #1
+    ret nz
+    ld a, (catdoku_save_count)
+    or a
+    ld a, #1
+    ret nz
+    ld a, #2
+    ret
+
+;; ----------------------------------------------------------------------------
+;; confirm_new_update
+;;   STATE_CONFIRM_NEW: "ERASE ALL PROGRESS?" drawn once (menu_dirty).
+;;   RETURN erases the progress (save_reset_progress writes CATDOKU.SAV) and
+;;   opens level select on the first level; ESC goes back to the menu.
+;; ----------------------------------------------------------------------------
+confirm_new_update::
+    ld a, (menu_dirty)
+    or a
+    jr z, _cn_input
+    xor a
+    ld (menu_dirty), a
+    call fwk_video_clear_visible
+    ld a, #TEXT_YELLOW
+    call fwk_text_set_color
+    ld hl, #str_cn_question
+    ld b, #70
+    call _menu_draw_centered
+    ld a, #TEXT_WHITE
+    call fwk_text_set_color
+    ld hl, #str_cn_detail_1
+    ld b, #95
+    call _menu_draw_centered
+    ld hl, #str_cn_detail_2
+    ld b, #107
+    call _menu_draw_centered
+    ld a, #TEXT_LABEL
+    call fwk_text_set_color
+    ld hl, #str_cn_keys
+    ld b, #140
+    call _menu_draw_centered
+    ld a, #TEXT_WHITE
+    jp fwk_text_set_color
+_cn_input:
+    ld a, (fwk_input_pressed)
+    bit 7, a                      ; ESC: keep everything
+    jr z, _cn_yes
+    ld a, #STATE_MENU
+    ld (game_state), a
+    ld a, #1
+    ld (menu_dirty), a
+    ret
+_cn_yes:
+    bit 4, a                      ; RETURN: erase and start
+    ret z
+    call save_reset_progress
+    xor a
+    ld (level_select_diff), a
+    ld (level_select_item), a
+    ld (menu_selection), a
+    ld a, #STATE_LEVEL_SELECT
+    ld (game_state), a
+    ld a, #1
+    ld (menu_dirty), a
+    ret
 
 ;; ----------------------------------------------------------------------------
 ;; rules_update
