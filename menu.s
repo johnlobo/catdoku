@@ -739,13 +739,15 @@ _mt_row:
     ld c, #22                    ; marker left of the centred items
     call fwk_video_get_ptr       ; HL = dest
     push hl
-    ; sprite row pointer = catdoku_cat_pixels + row*4
+    ; sprite row pointer = catdoku_icon_pixels + row*8: an 8x8 cat in the
+    ; top-left corner of a 16x16 tile (8 bytes per row, the first 4 used)
     ld a, (catdoku_temp_col)
+    sla a
     sla a
     sla a
     ld c, a
     ld b, #0
-    ld hl, #catdoku_cat_pixels
+    ld hl, #catdoku_icon_pixels
     add hl, bc
     ex de, hl                    ; DE = sprite row
     pop hl                       ; HL = dest

@@ -27,17 +27,17 @@ fc_lines: .db 0                   ; 6, or 8 when joined downwards
 cursor_paint: .db 0        ; byte written into the frame pixels (CURSOR_BYTE or 0)
 cursor_x: .db 0            ; first frame byte of the current line
 cursor_y: .db 0            ; top line of the frame
-cursor_hline_masks: .db 0x55, 0xFF, 0xFF, 0xFF, 0xAA
+cursor_hline_masks: .db 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xAA
 
 ;; Sprite descriptors (8 bytes each)
 sprite_cat_desc:: .dw catdoku_cat_pixels, 0, 0
-    .db 4, 8                      ; width (bytes), height (lines): .db, not .dw
+    .db 8, 16                     ; width (bytes), height (lines): .db, not .dw
 sprite_mark_desc:: .dw catdoku_mark_pixels, 0, 0
-    .db 4, 8
+    .db 8, 16
 sprite_cell_desc:: .dw catdoku_cell_pixels, 0, 0
-    .db 4, 8
+    .db 8, 16
 sprite_cursor_desc:: .dw catdoku_cursor_pixels, 0, 0
-    .db 4, 8
+    .db 8, 16
 game_timer_start:: .dw 0
 game_timer_now:: .dw 0
 game_timer_seconds:: .dw 0
@@ -346,11 +346,11 @@ _gu_seconds_update:
     jp _game_draw_time
 
 _game_fill_cell:
-    ;; In: B=row, C=col. Fills the cell (3 bytes x 6 lines) with its region
-    ;; colour (region+1 pen). The 2-pixel gaps to the right and below are
-    ;; filled too when the neighbour is in the same region, so each region
-    ;; reads as one shape with black lines only on its borders. The gaps hold
-    ;; no sprite pixels (cat and X sit inside the 6x6 area).
+    ;; In: B=row, C=col. Fills the cell (7 bytes x 14 lines) with its region
+    ;; colour (region+1 pen). The gaps to the right (1 byte, 2 pixels) and
+    ;; below (2 lines) are filled too when the neighbour is in the same region,
+    ;; so each region reads as one shape with black lines only on its borders.
+    ;; The gaps hold no sprite pixels (cat and X sit inside the 14x14 area).
     ;; Preserves BC (cpct_px2byteM0_asm destroys B and DE).
     push bc
     call board_get_cell
@@ -405,7 +405,7 @@ _gfc_no_right:
 _gfc_joins_done:
     ld a, (fc_down)
     add a, a
-    add a, #6
+    add a, #14
     ld (fc_lines), a
     push bc
     push bc
@@ -420,8 +420,9 @@ _gfc_pen_ok:
     call cpct_px2byteM0_asm
     ld d, a
     pop bc
-    ; start scanline = 81 + row*8 (board centered, leave top gap)
+    ; start scanline = board_y + 1 + row*16
     ld a, b
+    sla a
     sla a
     sla a
     sla a
@@ -429,14 +430,15 @@ _gfc_pen_ok:
     add a, (hl)
     inc a
     ld (catdoku_temp_row), a
-    ; start column (bytes) = 30 + col*4
+    ; start column (bytes) = board_x + col*8
     ld a, c
+    sla a
     sla a
     sla a
     ld hl, #board_x
     add a, (hl)
     ld (catdoku_temp_col), a
-    ; fill 6 scanlines
+    ; fill 14 scanlines (16 with the join below)
     xor a
     ld (catdoku_temp_val), a
 _gfc_row:
@@ -455,13 +457,13 @@ _gfc_row:
     push de                       ; fwk_video_get_ptr destroys DE, and D holds the colour byte
     call fwk_video_get_ptr
     pop de
-    ld a, (catdoku_temp_val)      ; lines 0..5: 3 bytes + right join
-    cp #6                         ; lines 6..7: 3 bytes + corner
+    ld a, (catdoku_temp_val)      ; lines 0..13: 7 bytes + right join
+    cp #14                        ; lines 14..15: 7 bytes + corner
     ld a, (fc_right)
     jr c, _gfc_width
     ld a, (fc_corner)
 _gfc_width:
-    add a, #3
+    add a, #7
     ld b, a
 _gfc_byte:
     ld a, d
@@ -521,7 +523,8 @@ _grc_cat:
     ;; set sprite pos
     ld a, c
     sla a
-    sla a               ; X in bytes: 4 bytes per cell
+    sla a
+    sla a               ; X in bytes: 8 bytes per cell
     ld hl, #board_x
     add a, (hl)
     ld (sprite_cat_desc + FWK_SPRITE_X), a
@@ -531,6 +534,7 @@ _grc_cat:
     sla a
     sla a
     sla a
+    sla a               ; Y: 16 lines per cell
     ld hl, #board_y
     add a, (hl)
     ld (sprite_cat_desc + FWK_SPRITE_Y), a
@@ -542,7 +546,8 @@ _grc_cat:
 _grc_mark:
     ld a, c
     sla a
-    sla a               ; X in bytes: 4 bytes per cell
+    sla a
+    sla a               ; X in bytes: 8 bytes per cell
     ld hl, #board_x
     add a, (hl)
     ld (sprite_mark_desc + FWK_SPRITE_X), a
@@ -552,6 +557,7 @@ _grc_mark:
     sla a
     sla a
     sla a
+    sla a               ; Y: 16 lines per cell
     ld hl, #board_y
     add a, (hl)
     ld (sprite_mark_desc + FWK_SPRITE_Y), a
@@ -588,7 +594,8 @@ _grb_col_loop:
     ;; Calculate screen X = board_x + col * 8
     ld a, c
     sla a
-    sla a               ; X in bytes: 4 bytes per cell
+    sla a
+    sla a               ; X in bytes: 8 bytes per cell
     ld hl, #board_x
     add a, (hl)
     ld (sprite_cell_desc + FWK_SPRITE_X), a
@@ -599,6 +606,7 @@ _grb_col_loop:
     sla a
     sla a
     sla a
+    sla a               ; Y: 16 lines per cell
     ld hl, #board_y
     add a, (hl)
     ld (sprite_cell_desc + FWK_SPRITE_Y), a
@@ -715,10 +723,10 @@ _gcc_done:
     ret
 
 ;; ----------------------------------------------------------------------------
-;; Cursor: yellow frame one pixel outside the 6x6 cell, drawn in the gap between
-;; cells. Cell (r,c) covers lines 81+8r..86+8r and bytes 30+4c..32+4c (pixels
-;; 60+8c..65+8c). The frame uses lines 80+8r and 87+8r, the right pixel of byte
-;; 29+4c and the left pixel of byte 33+4c. Mode 0 packs two pixels per byte, so
+;; Cursor: yellow frame one pixel outside the 14x14 cell, drawn in the gap
+;; between cells. With X = board_x + 8c and Y = board_y + 16r, cell (r,c) covers
+;; lines Y+1..Y+14 and bytes X..X+6. The frame uses lines Y and Y+15, the right
+;; pixel of byte X-1 and the left pixel of byte X+7. Mode 0 packs two pixels per byte, so
 ;; each byte is masked: 0x55 = right pixel, 0xAA = left pixel, 0xFF = both.
 ;; Drawing and erasing write only the frame pixels; nothing else is touched.
 ;; Modifies: AF, BC, DE, HL.
@@ -866,10 +874,12 @@ _game_paint_cursor:
     add a, a
     add a, a
     add a, a
+    add a, a
     ld hl, #board_y
     add a, (hl)
     ld (cursor_y), a
     ld a, (cursor_col)
+    add a, a
     add a, a
     add a, a
     ld hl, #board_x
@@ -880,10 +890,10 @@ _game_paint_cursor:
     ld a, (cursor_y)
     call _gpc_hline
     ld a, (cursor_y)
-    add a, #7
+    add a, #15
     call _gpc_hline
-    ;; sides, lines 1..6
-    ld b, #6
+    ;; sides, lines 1..14
+    ld b, #14
     ld a, (cursor_y)
     inc a
 _gpc_side_loop:
@@ -894,11 +904,11 @@ _gpc_side_loop:
     djnz _gpc_side_loop
     ret
 
-;; A = line: bytes x..x+4 with masks 0x55, 0xFF, 0xFF, 0xFF, 0xAA
+;; A = line: bytes x..x+8 with masks 0x55, 0xFF x 7, 0xAA
 _gpc_hline:
     call _gpc_line_ptr
     ld de, #cursor_hline_masks
-    ld b, #5
+    ld b, #9
 _gpc_hline_byte:
     ld a, (de)
     call _gpc_apply
@@ -907,15 +917,13 @@ _gpc_hline_byte:
     djnz _gpc_hline_byte
     ret
 
-;; A = line: right pixel of byte x, left pixel of byte x+4
+;; A = line: right pixel of byte x, left pixel of byte x+8
 _gpc_side:
     call _gpc_line_ptr
     ld a, #0x55
     call _gpc_apply
-    inc hl
-    inc hl
-    inc hl
-    inc hl
+    ld de, #8
+    add hl, de
     ld a, #0xAA
     jr _gpc_apply
 

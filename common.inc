@@ -5,7 +5,7 @@
 .include "video/sprite.inc"
 .include "resources/disk.inc"
 .globl fwk_project_init, fwk_system_wait_frame, fwk_system_frame_count
-.globl catdoku_palette, catdoku_cat_pixels, catdoku_mark_pixels, catdoku_cell_pixels, catdoku_cursor_pixels
+.globl catdoku_palette, catdoku_cat_pixels, catdoku_mark_pixels, catdoku_cell_pixels, catdoku_cursor_pixels, catdoku_icon_pixels
 .globl catdoku_sprites
 .globl fwk_video_init, fwk_video_clear_visible, fwk_video_get_ptr, fwk_video_plot_byte
 .globl fwk_text_init, fwk_text_draw, fwk_text_draw_centered, fwk_text_draw_clear, fwk_text_set_color, fwk_text_draw_small_u8, fwk_text_draw_small_digit, fwk_text_set_colors
