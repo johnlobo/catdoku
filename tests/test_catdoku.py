@@ -186,7 +186,7 @@ class Emulator(unittest.TestCase):
         n, bx, by = self.byte(emu, "catdoku_n"), self.byte(emu, "board_x"), self.byte(emu, "board_y")
 
         def board():
-            return b"".join(self.screen(emu, bx - 1, y, 4 * n + 2) for y in range(by - 1, by + 8 * n + 1))
+            return b"".join(self.screen(emu, bx - 1, y, 8 * n + 2) for y in range(by - 1, by + 16 * n + 1))
 
         before = board()
         for key in ["right", "down", "right", "down", "left", "up", "left", "up"]:
@@ -211,13 +211,22 @@ class Emulator(unittest.TestCase):
         steps = [i for i in range(1, 30) if trace[i] != trace[i - 1]]
         self.assertEqual([b - a for a, b in zip(steps, steps[1:])], [15, 4, 4], trace)
 
+    def test_menu_indicator_is_the_small_cat(self):
+        # The indicator is the 8x8 icon (bytes 22..25), not a slice of the 16x16 board cat.
+        emu = self.boot()
+        rows = [self.screen(emu, 22, y, 5) for y in range(100, 200)]   # byte 27 on: AUTO MARK
+        self.assertTrue(any(any(row[:4]) for row in rows), "no indicator")
+        self.assertFalse(any(any(row[4:]) for row in rows), "indicator wider than 4 bytes")
+        drawn = [row[:4] for row in rows if any(row[:4])]
+        self.assertEqual(len(drawn), 5, "the icon has 5 lines of pixels")
+
     def test_every_board_size_is_centred(self):
         for difficulty in range(5):
             with self.subTest(n=5 + difficulty):
                 emu = self.boot()
                 self.open_level(emu, difficulty)
                 columns, lines = set(), set()
-                for y in range(40, 180):
+                for y in range(18, 189):        # between the time (8..16) and the help (190..)
                     row = self.screen(emu, 0, y, 80)
                     for x, value in enumerate(row):
                         if value:
