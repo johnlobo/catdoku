@@ -46,6 +46,8 @@ current_level_id:: .db 0
 game_dirty:: .db 1
 seconds_dirty:: .db 0
 game_seconds_buf:: .ds 6
+game_time_str: .ascii "TIME:"     ; "TIME:" + up to 3 digits + NUL, drawn centred
+game_time_digits: .ds 4
 help_ptr: .dw 0
 help_x: .db 0
 help_y: .db 0
@@ -54,7 +56,7 @@ help_char: .db 0, 0            ; one character + NUL
 
 str_game_title:: .asciz "CATDOKU"
 str_game_time:: .asciz "TIME:"
-str_game_hint:: .asciz "RETURN:CAT SPACE:MARK H:HINT ESC:MENU"
+str_game_hint:: .asciz "RETURN:CAT SPACE:MARK H:HINT ESC:BACK"
 str_game_victory:: .asciz "LEVEL COMPLETE!"
 str_timeup:: .asciz "TIME UP"
 
@@ -323,13 +325,8 @@ _gu_render:
     ;; Clear screen
     xor a
     call fwk_video_clear_visible
-    ;; Draw time label (top line, centered)
-    ld hl, #str_game_time
-    ld b, #8
-    ld c, #37                     ; "TIME:" ends at byte 47, where the seconds start
-    call _game_draw_text_at
-    ;; Draw seconds (big)
-    call _game_draw_seconds
+    ;; "TIME:<seconds>" centred on the top line
+    call _game_draw_time
     ;; Controls help, one line at the bottom (37 chars, centred: 40 - 37)
     ld hl, #str_game_hint
     ld b, #190
@@ -340,37 +337,13 @@ _gu_render:
     ret
 
 _gu_seconds_update:
-    ;; Update only the seconds number each second
+    ;; Redraw the time each second
     ld a, (seconds_dirty)
     or a
     ret z
     xor a
     ld (seconds_dirty), a
-    ;; Clear number area (8 scanlines x 12 bytes)
-    ld a, #8
-    ld (catdoku_temp_row), a
-_clear_sec_loop:
-    ld a, (catdoku_temp_row)
-    cp #16
-    jr z, _clear_sec_done
-    ld l, a
-    ld h, #0
-    ld c, #47
-    call fwk_video_get_ptr
-    ld b, #12
-_clear_sec_bytes:
-    xor a
-    ld (hl), a
-    inc hl
-    djnz _clear_sec_bytes
-    ld a, (catdoku_temp_row)
-    inc a
-    ld (catdoku_temp_row), a
-    jr _clear_sec_loop
-_clear_sec_done: nop
-    ;; Draw seconds (big)
-    call _game_draw_seconds
-    ret
+    jp _game_draw_time
 
 _game_fill_cell:
     ;; In: B=row, C=col. Fills the cell (3 bytes x 6 lines) with its region
@@ -971,10 +944,36 @@ _gpc_apply:
     pop bc
     ret
 
-_game_draw_seconds:
+;; ----------------------------------------------------------------------------
+;; _game_draw_time
+;;   "TIME:<seconds>" centred on lines 8..16. Clears the widest form first
+;;   ("TIME:999", 16 bytes at columns 32..47), so a shorter one leaves no rest.
+;;   Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+TIME_LINE = 8
+TIME_CLEAR_X = 32                 ; 40 - 8 characters
+TIME_CLEAR_WIDTH = 16
+TIME_FONT_LINES = 9
+_game_draw_time:
     ld hl, (game_timer_seconds)
-    ld b, #8
-    ld c, #47
+    call _game_format_number
+    ld hl, #game_seconds_buf
+    ld de, #game_time_digits
+    ld bc, #4
+    ldir
+    ld hl, #TIME_LINE
+    ld c, #TIME_CLEAR_X
+    call fwk_video_get_ptr
+    ex de, hl
+    xor a
+    ld b, #TIME_FONT_LINES
+    ld c, #TIME_CLEAR_WIDTH
+    call cpct_drawSolidBox_asm
+    ld hl, #TIME_LINE
+    ld c, #0
+    call fwk_video_get_ptr
+    ld iy, #game_time_str
+    jp fwk_text_draw_centered
 
 ;; ----------------------------------------------------------------------------
 ;; game_draw_number_at
@@ -983,6 +982,14 @@ _game_draw_seconds:
 ;; ----------------------------------------------------------------------------
 game_draw_number_at::
     push bc
+    call _game_format_number
+    pop bc
+    ld hl, #game_seconds_buf
+    jp _game_draw_text_at
+
+;; In: HL = 0..999. Out: game_seconds_buf = its decimal digits, NUL ended.
+;; Modifies: AF, BC, DE, HL, IX.
+_game_format_number:
     ex de, hl
     ld ix, #game_seconds_buf
     ;; hundreds
@@ -1046,10 +1053,7 @@ _gds_skip_tens:
     ld (ix), a
     inc ix
     ld (ix), #0
-    ;; draw
-    pop bc
-    ld hl, #game_seconds_buf
-    jp _game_draw_text_at
+    ret
 
 _game_draw_text:
     ;; In: HL = string ptr, B = scanline Y

@@ -9,7 +9,7 @@ Locations (environment variables, all optional):
     GLASNOST_ROOT        GlasnostFWK checkout (default: two folders above this project)
     BLUEPIXEL_HEADLESS   bluepixel-headless binary (default: <GlasnostFWK>/../BluePixel/build/)
     BLUEPIXEL_ROMS       ROM folder (default: <GlasnostFWK>/../BluePixel/web/roms)
-    CATDOKU_SLOW=1       also regenerate the 200 levels and compare (about 3 minutes)
+    CATDOKU_SLOW=1       also regenerate the 200 levels and compare (about 1.5 minutes)
 """
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ class HostChecks(unittest.TestCase):
                            if line.strip().startswith(".db"))
         self.assertEqual(packed_bytes, offset)
 
-    @unittest.skipUnless(os.environ.get("CATDOKU_SLOW") == "1", "set CATDOKU_SLOW=1 (about 3 minutes)")
+    @unittest.skipUnless(os.environ.get("CATDOKU_SLOW") == "1", "set CATDOKU_SLOW=1 (about 1.5 minutes)")
     def test_the_generator_reproduces_the_levels(self):
         result = subprocess.run([sys.executable, str(PROJECT / "scripts" / "gen_catdoku_levels.py"), "--check"],
                                 capture_output=True, text=True)
@@ -254,6 +254,31 @@ class Emulator(unittest.TestCase):
         again = self.boot(self.export(emu))
         self.assertEqual(self.byte(again, "catdoku_save_count"), 0)
         self.assertEqual(again.read("catdoku_save_buffer", 7), b"CATDOKU")
+
+    def test_the_time_is_centred_as_it_grows(self):
+        emu = self.boot()
+        self.open_level(emu)
+        for seconds in (2, 12):
+            emu.run(50 * seconds)
+            with self.subTest(seconds=self.byte(emu, "game_timer_seconds")):
+                columns = {x for y in range(8, 17) for x, value in enumerate(self.screen(emu, 0, y, 80)) if value}
+                self.assertTrue(columns, "the time is not drawn")
+                self.assertLessEqual(abs(min(columns) - (79 - max(columns))), 1, sorted(columns))
+
+    def test_a_version_1_save_forgets_progress_and_keeps_auto_mark(self):
+        emu = self.boot()
+        # A version-1 file with AUTO MARK off and one completed level: the toggle
+        # below sets AUTO MARK and writes these bytes to the disc as they are.
+        emu.write("catdoku_save_buffer + 7", 0x01)
+        for offset, value in enumerate((3, 77, 0, 0, 0)):
+            emu.write(f"catdoku_save_buffer + {8 + offset}", value)
+        emu.write("catdoku_save_count", 1)
+        self.toggle_auto_mark(emu)
+        self.assertEqual(emu.read("catdoku_save_buffer", 9)[7:], bytes((0x81, 3)))
+        again = self.boot(self.export(emu))
+        self.assertEqual(self.byte(again, "catdoku_save_count"), 0)
+        self.assertEqual(again.read("catdoku_save_buffer", 9)[7:], bytes((0x82, 0xFF)),
+                         "version 2 with AUTO MARK kept, no level")
 
 
 if __name__ == "__main__":

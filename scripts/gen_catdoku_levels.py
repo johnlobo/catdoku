@@ -2,23 +2,29 @@
 """Generate 200 Catdoku levels (40 per difficulty) as ZX7B-compressed .s file.
 
 The puzzles come from catdoku/doc/generador_catdoku.py (the reference
-implementation of catdoku/doc/compendio-catdoku.md) with fixed seeds, so the
-output is reproducible.
+implementation of catdoku/doc/compendio-catdoku.md), imported as a module, with
+fixed seeds, so the output is reproducible. Catdoku accepts a board with its own
+bands (BANDS below) instead of the reference ones: the hardest technique a board
+needs, and how many times it needs T4 ("probar y descartar"). Each difficulty is
+then ordered from easiest to hardest.
 
     python3 scripts/gen_catdoku_levels.py           # rewrite generated/catdoku_levels.s
-    python3 scripts/gen_catdoku_levels.py --check   # exit 1 if it would change (about 3 min)
+    python3 scripts/gen_catdoku_levels.py --check   # exit 1 if it would change
 
 zx7b comes from $ZX7B, else the CPCtelera of $CPCT_PATH, else the one
 `glasnost path` reports (GlasnostFWK checkout two levels up).
 """
 
 import argparse
+import importlib.util
 import json
 import subprocess
 import os
+import random
 import shutil
 import sys
 import tempfile
+from concurrent.futures import ProcessPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GENERATOR = os.path.join(HERE, "..", "catdoku", "doc", "generador_catdoku.py")
@@ -57,20 +63,54 @@ DIFFICULTIES = [
     (5, 9, 40),   # Experto
 ]
 
-def generate_level(difficulty, n, seed):
-    """Generate a single level using the Python generator."""
-    cmd = [
-        sys.executable, GENERATOR,
-        "--nivel", str(difficulty),
-        "--n", str(n),
-        "--semilla", str(seed),
-        "--json"
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"Error generating level: {result.stderr}", file=sys.stderr)
-        return None
-    return json.loads(result.stdout)
+# Catdoku difficulty curve. tier = (lowest, highest) technique the board needs at
+# least (tier_min of the reference: T1 forced cells, T2 one-unit pigeonhole,
+# T3 two/three-unit pigeonhole, T4 trial and contradiction); t4 = how many steps
+# need T4. pasos = deduction steps / n^2, as in the reference NIVELES.
+BANDS = {
+    1: dict(tier=(1, 2), t4=(0, 0),   pasos=(0.00, 1.00)),   # Iniciación 5x5
+    2: dict(tier=(2, 3), t4=(0, 0),   pasos=(0.00, 1.00)),   # Fácil 6x6
+    3: dict(tier=(3, 3), t4=(0, 0),   pasos=(0.00, 1.00)),   # Medio 7x7: no trial
+    4: dict(tier=(4, 4), t4=(1, 10),  pasos=(0.30, 1.00)),   # Difícil 8x8
+    5: dict(tier=(4, 4), t4=(11, 99), pasos=(0.50, 1.00)),   # Experto 9x9
+}
+RETRIES = 20                     # seeds tried per level before giving up
+
+
+def load_generator():
+    spec = importlib.util.spec_from_file_location("generador_catdoku", GENERATOR)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module          # dataclasses look their module up here
+    spec.loader.exec_module(module)
+    return module
+
+
+def fits(m, nivel, n):
+    band = BANDS[nivel]
+    return (m.n == n
+            and band["tier"][0] <= m.tier_min <= band["tier"][1]
+            and band["t4"][0] <= m.t4 <= band["t4"][1]
+            and band["pasos"][0] <= m.pasos / (m.n * m.n) <= band["pasos"][1])
+
+
+def generate_level(job):
+    """One board for (difficulty, n, seed); other seeds derived from it if that one fails."""
+    difficulty, n, seed = job
+    gen = load_generator()
+    gen.encaja = lambda m, nivel: fits(m, nivel, n)   # catdoku bands, same search
+    for retry in range(RETRIES):
+        try:
+            return gen.generar_tablero(difficulty, random.Random(seed + retry * 1_000_003), n=n,
+                                       max_intentos=5000)
+        except RuntimeError:
+            continue
+    raise RuntimeError(f"no board for difficulty {difficulty} (n={n}) from seed {seed}")
+
+
+def difficulty_key(level):
+    """Order inside a difficulty: fewer T4 steps, then lower technique, then fewer steps."""
+    m = level["metricas"]
+    return (m["t4"], m["tier_min"], m["pasos"], level["id"])
 
 def level_to_binary(level_data, level_id):
     """Convert level JSON to binary format."""
@@ -141,32 +181,36 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     TEMP_DIR = tempfile.mkdtemp(prefix="catdoku_gen_")
     
+    jobs = []
+    for difficulty, n, count in DIFFICULTIES:
+        base = len(jobs)
+        jobs += [(difficulty, n, (base + i) * 1000 + difficulty * 100 + i) for i in range(count)]
+    print(f"Generating {len(jobs)} levels...")
+    try:
+        with ProcessPoolExecutor() as pool:
+            boards = list(pool.map(generate_level, jobs))
+    except RuntimeError as error:
+        sys.exit(f"Failed: {error}")
+
+    ordered = []
+    for difficulty, _, _ in DIFFICULTIES:
+        group = sorted((b for b in boards if b["nivel"] == difficulty), key=difficulty_key)
+        ordered += group
+        t4 = [b["metricas"]["t4"] for b in group]
+        tiers = sorted({b["metricas"]["tier_min"] for b in group})
+        print(f"  difficulty {difficulty}: techniques {tiers}, T4 steps {t4[0]}..{t4[-1]}")
+
     level_id = 0
     entries = []
     packed_data = bytearray()
-    
-    for difficulty, n, count in DIFFICULTIES:
-        print(f"Generating difficulty {difficulty} (n={n}, {count} levels)...")
-        for i in range(count):
-            seed = level_id * 1000 + difficulty * 100 + i
-            level_data = generate_level(difficulty, n, seed)
-            if level_data is None:
-                sys.exit(f"Failed to generate level {level_id}: the table would shift")
-            
-            raw = level_to_binary(level_data, level_id)
-            compressed = compress_level(raw, level_id)
-            
-            offset = len(packed_data)
-            packed_size = len(compressed)
-            unpacked_size = len(raw)
-            
-            entries.append((offset, packed_size, unpacked_size))
-            packed_data.extend(compressed)
-            
-            level_id += 1
-            if level_id % 10 == 0:
-                print(f"  Generated {level_id} levels...")
-    
+
+    for level_data in ordered:
+        raw = level_to_binary(level_data, level_id)
+        compressed = compress_level(raw, level_id)
+        entries.append((len(packed_data), len(compressed), len(raw)))
+        packed_data.extend(compressed)
+        level_id += 1
+
     # Generate .s file
     output_path = os.path.join(TEMP_DIR, "catdoku_levels.s")
     with open(output_path, "w") as f:

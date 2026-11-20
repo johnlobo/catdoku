@@ -18,6 +18,10 @@ SAVE_HEADER_SIZE = 8
 SAVE_ENTRY_SIZE = 5
 SAVE_FLAGS_OFFSET = 7
 SAVE_FLAG_AUTO_MARK = 0x80
+;; Version 2: the levels of the difficulty curve (Medio without trial and
+;; error, each difficulty ordered). A version-1 file refers to other boards,
+;; so loading one forgets its progress and keeps AUTO MARK.
+SAVE_VERSION = 2
 SAVE_BUFFER_SIZE = SAVE_HEADER_SIZE + CATDOKU_NUM_LEVELS * SAVE_ENTRY_SIZE
 
 catdoku_save_buffer:: .ds SAVE_BUFFER_SIZE
@@ -26,6 +30,7 @@ catdoku_save_loaded:: .db 0       ; 1 once save_load ran
 catdoku_save_filename:: .asciz "CATDOKU.SAV"
 catdoku_save_filename_len = 11
 sw_level: .db 0
+sl_keep: .db 0                    ; AUTO MARK bit carried over a version change
 sw_time: .dw 0
 
 ;; "SAVING..." message: framework window over the board (bytes 24..55, lines
@@ -80,6 +85,16 @@ save_load::
     ld a, (catdoku_save_buffer + 1)
     cp #'A'
     jr nz, _sl_empty
+    ld a, (catdoku_save_buffer + SAVE_FLAGS_OFFSET)
+    and #0x7F
+    cp #SAVE_VERSION
+    jr z, _sl_current
+    ;; Another version: its levels are other boards. Keep only AUTO MARK.
+    ld a, (catdoku_save_buffer + SAVE_FLAGS_OFFSET)
+    and #SAVE_FLAG_AUTO_MARK
+    ld (sl_keep), a
+    jr _sl_reset
+_sl_current:
     ;; Count entries up to the 0xFF marker
     ld hl, #catdoku_save_buffer + SAVE_HEADER_SIZE
     ld de, #SAVE_ENTRY_SIZE
@@ -99,6 +114,9 @@ _sl_counted:
     jr _sl_done
 
 _sl_empty:
+    xor a
+    ld (sl_keep), a
+_sl_reset:
     ld hl, #catdoku_save_buffer
     ld (hl), #0xFF
     ld de, #catdoku_save_buffer + 1
@@ -108,6 +126,10 @@ _sl_empty:
     ld de, #catdoku_save_buffer
     ld bc, #SAVE_HEADER_SIZE
     ldir
+    ld hl, #catdoku_save_buffer + SAVE_FLAGS_OFFSET
+    ld a, (sl_keep)
+    or (hl)
+    ld (hl), a
     xor a
 _sl_done:
     ld (catdoku_save_count), a
@@ -116,7 +138,7 @@ _sl_done:
     ret
 
 _save_magic: .ascii "CATDOKU"
-    .db 1                         ; version
+    .db SAVE_VERSION
 
 ;; ----------------------------------------------------------------------------
 ;; _save_find
