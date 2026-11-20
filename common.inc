@@ -19,7 +19,7 @@
 .globl fwk_audio_init_music, fwk_audio_init_sfx, fwk_audio_start, fwk_audio_stop, fwk_audio_play_sfx
 .globl audio_songStart, audio_sfxSoundEffects
 .globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
-.globl menu_update, level_select_update, rules_update, game_update, game_draw_number_at, help_draw_line, menu_dirty
+.globl menu_update, level_select_update, rules_update, confirm_new_update, game_update, game_draw_number_at, help_draw_line, menu_dirty
 .globl str_game_time
 .globl str_game_victory
 .globl str_timeup
@@ -30,7 +30,7 @@
 .globl catdoku_temp_row, catdoku_temp_col, catdoku_temp_val
 .globl catdoku_decomp_buffer, catdoku_level_table, catdoku_levels_packed
 .globl save_load, save_is_completed, save_write, save_get_time
-.globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings
+.globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings, save_reset_progress, catdoku_save_count
 .globl catdoku_game_palette
 .globl catdoku_save_buffer, catdoku_save_count
 .globl cpct_setPalette_asm, cpct_drawSolidBox_asm, cpct_px2byteM0_asm
@@ -46,6 +46,7 @@ STATE_SAVE = 4
 STATE_TIMEUP = 5
 STATE_LOST = 6                    ; a cat on a cell without one: game over
 STATE_RULES = 7                   ; rules screen, from the main menu
+STATE_CONFIRM_NEW = 8             ; NEW GAME with progress: confirm erasing it
 
 ;; ---- Main menu: NEW GAME, CONTINUE, RULES, AUTO MARK ----
 MENU_ITEM_Y = 120
@@ -94,6 +95,7 @@ TEXT_WHITE = 0                    ; pen 15
 TEXT_YELLOW = 1                   ; pen 6
 TEXT_GREEN = 8                    ; pen 8
 TEXT_LABEL = 5                    ; pen 11, light blue: labels of the help line
+TEXT_GREY = 3                     ; pen 2 (firmware 13, grey): disabled menu item
 
 ;; ---- Audio SFX ids ----
 SFX_CAT = 0

@@ -5,7 +5,7 @@
 .module game_save
 .globl catdoku_save_buffer, catdoku_save_count, catdoku_save_loaded
 .globl save_load, save_is_completed, save_write, save_get_time
-.globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings
+.globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings, save_reset_progress
 .include "common.inc"
 
 ;; ---- Data area ----
@@ -238,6 +238,22 @@ save_toggle_auto_mark::
     xor #SAVE_FLAG_AUTO_MARK
     ld (catdoku_save_buffer + SAVE_FLAGS_OFFSET), a
     ret
+
+;; ----------------------------------------------------------------------------
+;; save_reset_progress
+;;   NEW GAME: forgets every completed level and best time (entries back to
+;;   0xFF, count 0) and writes CATDOKU.SAV. The header and the AUTO MARK
+;;   option are kept. Modifies: AF, BC, DE, HL, IX, IY.
+;; ----------------------------------------------------------------------------
+save_reset_progress::
+    ld hl, #catdoku_save_buffer + SAVE_HEADER_SIZE
+    ld (hl), #0xFF
+    ld de, #catdoku_save_buffer + SAVE_HEADER_SIZE + 1
+    ld bc, #SAVE_BUFFER_SIZE - SAVE_HEADER_SIZE - 1
+    ldir
+    xor a
+    ld (catdoku_save_count), a
+    ;; fall through: write it
 
 save_write_settings::
     call _save_message_show

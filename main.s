@@ -92,6 +92,8 @@ main_loop:
     jp z, main_lost               ; too far for jr
     cp #STATE_RULES
     jp z, main_rules
+    cp #STATE_CONFIRM_NEW
+    jp z, main_confirm_new
     jr main_loop
 
 main_menu:
@@ -104,6 +106,10 @@ main_level_select:
 
 main_rules:
     call rules_update
+    jp main_loop
+
+main_confirm_new:
+    call confirm_new_update
     jp main_loop
 
 main_game:
