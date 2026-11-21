@@ -14,6 +14,7 @@ Locations (environment variables, all optional):
 from __future__ import annotations
 
 import base64
+import random
 import json
 import os
 import re
@@ -24,6 +25,8 @@ import unittest
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hint_model  # noqa: E402
 GLASNOST = Path(os.environ.get("GLASNOST_ROOT", PROJECT.parents[1])).resolve()
 BLUEPIXEL = GLASNOST.parent / "BluePixel"
 HEADLESS = Path(os.environ.get("BLUEPIXEL_HEADLESS", BLUEPIXEL / "build" / "bluepixel-headless"))
@@ -33,13 +36,14 @@ NOI = PROJECT / "build" / "obj" / "catdoku.noi"
 
 # Keyboard matrix (row, mask with the key's bit at 0), as the BluePixel adapter expects.
 KEYS = {"up": (0, 0xFE), "right": (0, 0xFD), "down": (0, 0xFB), "left": (1, 0xFE),
-        "return": (2, 0xFB), "space": (5, 0x7F), "esc": (8, 0xFB)}
+        "return": (2, 0xFB), "space": (5, 0x7F), "esc": (8, 0xFB), "h": (5, 0xEF)}
 
 STATE_MENU, STATE_LEVEL_SELECT, STATE_RULES, STATE_CONFIRM_NEW = 0, 1, 7, 8
 # Pens of assets/palette.json (PEN_* in common.inc)
 PEN_BLACK, PEN_YELLOW, PEN_DARK_RED, PEN_ORANGE, PEN_SEA_GREEN, PEN_WHITE = 0, 4, 6, 7, 9, 12
 MENU_CONTINUE, MENU_RULES, MENU_AUTO_MARK = 1, 2, 3
 SAVE_FLAG_AUTO_MARK = 0x80
+SAVE_RESUME, SAVE_ENTRIES = 8, 92                 # CATDOKU.SAV version 3 (save.s)
 
 
 def common_constant(name: str) -> int:
@@ -293,7 +297,7 @@ class Emulator(unittest.TestCase):
     def test_completed_levels_are_green_in_their_difficulty_only(self):
         emu = self.boot()
         for offset, value in enumerate((1, 77, 0, 0, 0)):                   # level id 1: BEGINNER 02
-            emu.write(f"catdoku_save_buffer + {8 + offset}", value)
+            emu.write(f"catdoku_save_buffer + {SAVE_ENTRIES + offset}", value)
         emu.write("catdoku_save_count", 1)
         emu.write("menu_dirty", 1)
         emu.run(30)
@@ -336,7 +340,7 @@ class Emulator(unittest.TestCase):
         self.assertEqual(self.byte(emu, "menu_selection"), 0)
         # One completed level (id 3, 77 s), then redraw the menu.
         for offset, value in enumerate((3, 77, 0, 0, 0)):
-            emu.write(f"catdoku_save_buffer + {8 + offset}", value)
+            emu.write(f"catdoku_save_buffer + {SAVE_ENTRIES + offset}", value)
         emu.write("catdoku_save_count", 1)
         emu.write("menu_dirty", 1)
         emu.run(30)
@@ -378,8 +382,169 @@ class Emulator(unittest.TestCase):
         self.assertEqual(emu.read("catdoku_save_buffer", 9)[7:], bytes((0x81, 3)))
         again = self.boot(self.export(emu))
         self.assertEqual(self.byte(again, "catdoku_save_count"), 0)
-        self.assertEqual(again.read("catdoku_save_buffer", 9)[7:], bytes((0x82, 0xFF)),
-                         "version 2 with AUTO MARK kept, no level")
+        self.assertEqual(again.read("catdoku_save_buffer", 9)[7:], bytes((0x83, 0xFF)),
+                         "version 3 with AUTO MARK kept, no game, no level")
+        self.assertEqual(again.read("catdoku_save_buffer", SAVE_ENTRIES + 1)[SAVE_ENTRIES], 0xFF)
+
+    def test_a_version_2_save_keeps_its_levels(self):
+        # Version 2 has the same levels: its entries move after the new block.
+        emu = self.boot()
+        emu.write("catdoku_save_buffer + 7", 0x02)
+        for offset, value in enumerate((3, 77, 0, 0, 0, 5, 1, 1, 0, 0, 0xFF)):
+            emu.write(f"catdoku_save_buffer + {8 + offset}", value)
+        emu.write("catdoku_save_count", 2)
+        self.toggle_auto_mark(emu)
+        again = self.boot(self.export(emu))
+        buffer = again.read("catdoku_save_buffer", SAVE_ENTRIES + 11)
+        self.assertEqual(self.byte(again, "catdoku_save_count"), 2)
+        self.assertEqual((buffer[7], buffer[SAVE_RESUME]), (0x83, 0xFF), "version 3, AUTO MARK, no game")
+        self.assertEqual(bytes(buffer[SAVE_ENTRIES:]), bytes((3, 77, 0, 0, 0, 5, 1, 1, 0, 0, 0xFF)))
+
+    # -- unfinished game ------------------------------------------------------------
+    def test_esc_keeps_the_game_and_continue_brings_it_back(self):
+        emu = self.boot()
+        self.assertEqual(self.byte(emu, "menu_selection"), 0)
+        self.open_level(emu, 1)
+        n = self.byte(emu, "catdoku_n")
+        cats = emu.read("catdoku_cats", 2)
+        cat = cats[0] * n + cats[1]
+        x_cell = next(i for i in range(n * n) if abs(i // n - cats[0]) > 1 and i % n != cats[1])
+        for _ in range(cats[0]):
+            self.tap(emu, "down")
+        for _ in range(cats[1]):
+            self.tap(emu, "right")
+        self.tap(emu, "return", 30)                                     # a right cat
+        emu.write(f"catdoku_marks + {x_cell}", 2)
+        emu.run(50 * 3)
+        seconds = self.byte(emu, "game_timer_seconds")
+        self.tap(emu, "esc", 200)                                       # writes CATDOKU.SAV
+        self.assertEqual(self.byte(emu, "game_state"), STATE_LEVEL_SELECT)
+        again = self.boot(self.export(emu))
+        block = again.read("catdoku_save_buffer", SAVE_RESUME + 3)[SAVE_RESUME:]
+        self.assertEqual((block[0], block[1] | block[2] << 8), (40, seconds), "level 40 (EASY 01) and its time")
+        self.tap(again, "down")
+        self.assertEqual(self.byte(again, "menu_selection"), MENU_CONTINUE, "CONTINUE is enabled")
+        self.tap(again, "return", 150)
+        self.assertEqual(self.byte(again, "game_state"), 2)
+        marks = again.read("catdoku_marks", n * n)
+        self.assertEqual((marks[cat], marks[x_cell], sum(1 for m in marks if m)), (1, 2, 2))
+        self.assertEqual(self.byte(again, "catdoku_found_cnt"), 1, "the cat counts as found")
+        self.assertGreaterEqual(self.byte(again, "game_timer_seconds"), seconds, "the time goes on")
+
+    def test_losing_the_resumed_game_forgets_it(self):
+        emu = self.boot()
+        self.open_level(emu)
+        self.tap(emu, "esc", 200)
+        self.tap(emu, "esc", 60)                                        # back to the menu
+        self.tap(emu, "down")
+        self.tap(emu, "return", 150)                                    # CONTINUE
+        n = self.byte(emu, "catdoku_n")
+        cats = emu.read("catdoku_cats", 2 * n)
+        wrong = next(c for c in range(n) if all((0, c) != (cats[2 * i], cats[2 * i + 1]) for i in range(n)))
+        for _ in range(wrong):
+            self.tap(emu, "right")
+        self.tap(emu, "return", 200)                                    # a cat where there is none
+        self.assertEqual(self.byte(emu, "game_state"), 6)
+        self.assertEqual(emu.read("catdoku_save_buffer", SAVE_RESUME + 1)[SAVE_RESUME], 0xFF)
+
+    # -- hints ----------------------------------------------------------------------
+    def board(self, emu):
+        n = self.byte(emu, "catdoku_n")
+        grid = list(emu.read("catdoku_grid", n * n))
+        raw = emu.read("catdoku_cats", 2 * n)
+        return n, grid, [(raw[2 * i], raw[2 * i + 1]) for i in range(n)]
+
+    def ask_hint(self, emu, n, marks):
+        for i, m in enumerate(marks):
+            emu.write(f"catdoku_marks + {i}", m)
+        emu.write("hint_active", 0)
+        emu.run(2)
+        emu.write("hint_kind", 0xEE)
+        self.tap(emu, "h", 0)
+        for _ in range(3000):
+            if self.byte(emu, "hint_kind") != 0xEE:
+                break
+            emu.run(1)
+        blink = {i for i, v in enumerate(emu.read("hint_blink", n * n)) if v}
+        result = (self.byte(emu, "hint_kind"), self.byte(emu, "hint_target"), blink)
+        self.tap(emu, "right", 12)                                      # ends the hint
+        self.tap(emu, "left", 12)
+        return result
+
+    def test_hints_match_the_model(self):
+        # Random states of every difficulty, then the hints met while solving two
+        # EXPERT levels with the model's own hints (they reach FIT and TRIAL).
+        rng = random.Random(7)
+        seen = set()
+        for difficulty in range(5):
+            emu = self.boot()
+            self.open_level(emu, difficulty)
+            n, grid, cats = self.board(emu)
+            solution = {r * n + c for r, c in cats}
+            for _ in range(12):
+                marks = [1 if i in solution and rng.random() < 0.3 else 0 for i in range(n * n)]
+                cand = hint_model.compute(n, grid, [0] * (n * n), [m == 1 for m in marks])[0]
+                for i in range(n * n):
+                    if marks[i] == 0 and (not cand[i] and rng.random() < 0.95 or i not in solution and rng.random() < 0.15):
+                        marks[i] = 2
+                if rng.random() < 0.1:
+                    marks[rng.choice(sorted(solution))] = 2
+                if all(marks[i] == 1 for i in solution):
+                    continue
+                kind, target, blink, _ = hint_model.hint(n, grid, cats, marks)
+                seen.add(kind)
+                with self.subTest(difficulty=difficulty, marks=marks):
+                    self.assertEqual(self.ask_hint(emu, n, marks), (kind, target, blink))
+        for item in (0, 20):
+            emu = self.boot()
+            self.tap(emu, "return", 30)
+            for _ in range(4):
+                self.tap(emu, "space", 30)
+            for _ in range(item):
+                self.tap(emu, "right", 4)
+            self.tap(emu, "return", 150)
+            n, grid, cats = self.board(emu)
+            marks = [0] * (n * n)
+            while True:
+                kind, target, blink, extra = hint_model.hint(n, grid, cats, marks)
+                if kind == hint_model.NONE:
+                    break
+                seen.add(kind)
+                if kind in (hint_model.FIT, hint_model.TRIAL):
+                    with self.subTest(item=item, marks=marks):
+                        self.assertEqual(self.ask_hint(emu, n, marks), (kind, target, blink))
+                hint_model.apply(n, grid, marks, (kind, target, blink, extra))
+        self.assertEqual(seen, {hint_model.ERR, hint_model.RULED, hint_model.ONE, hint_model.FIT, hint_model.TRIAL})
+
+    def test_a_second_h_moves_the_selector_or_marks_the_trial_cell(self):
+        emu = self.boot()
+        self.open_level(emu)
+        n, grid, cats = self.board(emu)
+        # ONE: a single candidate left in a row -> the selector goes there
+        r, c = cats[1]
+        marks = [2 if i // n == r and i % n != c else 0 for i in range(n * n)]
+        kind, target, _, _ = hint_model.hint(n, grid, cats, marks)
+        self.assertEqual((kind, target), (hint_model.ONE, r * n + c))
+        self.ask_hint(emu, n, marks)
+        self.tap(emu, "h", 8)
+        self.tap(emu, "h", 30)
+        self.assertEqual((self.byte(emu, "cursor_row"), self.byte(emu, "cursor_col")), (r, c))
+        # TRIAL on an EXPERT level: the second H puts the X
+        emu = self.boot()
+        self.open_level(emu, 4)
+        n, grid, cats = self.board(emu)
+        marks = [0] * (n * n)
+        while True:
+            hint = hint_model.hint(n, grid, cats, marks)
+            if hint[0] == hint_model.TRIAL:
+                break
+            hint_model.apply(n, grid, marks, hint)
+        for i, m in enumerate(marks):
+            emu.write(f"catdoku_marks + {i}", m)
+        self.tap(emu, "h", 120)
+        self.assertEqual(self.byte(emu, "hint_kind"), hint_model.TRIAL)
+        self.tap(emu, "h", 30)
+        self.assertEqual(emu.read("catdoku_marks", n * n)[hint[1]], 2)
 
 
 if __name__ == "__main__":

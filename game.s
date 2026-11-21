@@ -24,6 +24,13 @@ fc_right: .db 0                   ; 1: right neighbour in the same region
 fc_down: .db 0                    ; 1: cell below in the same region
 fc_corner: .db 0                  ; 1: right, below and diagonal all the same
 fc_full: .db 0                    ; region pen in both pixels
+fc_override: .db 0xFF             ; pen instead of the region one (0xFF: none)
+hint_active:: .db 0               ; a hint is shown: the next H acts on it
+hint_on:: .db 0                   ; its cells are white now
+hint_timer: .db 0
+hint_pos: .db 0xFF                ; next cell of a phase being drawn (0xFF: none)
+hint_toggles: .db 0
+hint_text: .ds 40
 fc_e7: .db 0                      ; byte 7 of lines 0..14: region + right gap
 fc_e7t: .db 0                     ; byte 7 of lines 7 and 8: region + gap tick
 fc_b3: .db 0                      ; line 15, byte 3: region + tick
@@ -46,6 +53,7 @@ cell_pos: .dw 0, 0                ; screen X (bytes), Y (lines) of the cell bein
 game_timer_start:: .dw 0
 game_timer_now:: .dw 0
 game_timer_seconds:: .dw 0
+game_timer_base:: .dw 0            ; seconds already played (a resumed game)
 game_won:: .db 0
 current_level_id:: .db 0
 game_dirty:: .db 1
@@ -105,6 +113,10 @@ _gu_div_sub:
     inc bc
     jr _gu_div_loop
 _gu_div_done:
+    ld hl, (game_timer_base)
+    add hl, bc
+    ld b, h
+    ld c, l
     ;; Mark dirty if seconds changed
     ld a, (game_timer_seconds)
     cp c
@@ -126,6 +138,8 @@ _gu_seconds_same:
     cp #0xE8
     jr c, _gu_time_ok
 _gu_time_expired:
+    ld a, (current_level_id)      ; a resumed game ends here: forget it
+    call save_forget_resume
     ld a, #STATE_TIMEUP
     ld (game_state), a
     ld a, #1
@@ -134,10 +148,16 @@ _gu_time_expired:
     ld (game_timer_start), a
     ld (game_timer_start + 1), a
     ret                           ; leave game_dirty for main_timeup
-_gu_time_ok: nop
-
-    ;; Handle input
+_gu_time_ok:
+    call _game_hint_blink
+    ;; Handle input: any other key ends a hint first
     call _game_move_keys
+    ld b, a
+    ld a, (fwk_input_pressed)
+    and #INPUT_CAT | INPUT_MARK | INPUT_BACK
+    or b
+    call nz, _game_hint_end
+    ld a, (move_keys)
     ;; UP
     bit 0, a
     jr z, _gu_down
@@ -215,6 +235,8 @@ _gu_cat:
     pop af
     jr z, _gu_cat_ok
     ;; Not a solution cell: the game is lost
+    ld a, (current_level_id)
+    call save_forget_resume
     ld a, #SFX_ERROR
     ld b, #5
     ld c, #2
@@ -259,26 +281,58 @@ _gu_hint:
     ld a, (fwk_input_pressed)
     bit 6, a            ; HINT pressed
     jr z, _gu_back
-    ;; erase cursor at old position
-    call _game_erase_cursor
-    call board_get_hint
+    ld a, (hint_active)
     or a
-    jr z, _gu_hint_none
-    ;; HL = pointer to (row, col) of hint cat
-    ld a, (hl)
+    jr z, _gu_hint_new
+    ;; second H: act on the hint shown
+    call _game_hint_end
+    ld a, (hint_kind)
+    cp #HINT_TRIAL
+    jr z, _gu_hint_x
+    ld a, (hint_target)
+    cp #0xFF
+    jr z, _gu_back
+    call _game_erase_cursor       ; the selector goes to the cell
+    ld a, (hint_target)
+    call _game_cell_rc
+    ld a, b
     ld (cursor_row), a
-    inc hl
-    ld a, (hl)
+    ld a, c
     ld (cursor_col), a
-_gu_hint_none:
-    ;; draw cursor (new position, or old one again when no hint is left)
     call _game_render_cursor
+    jr _gu_back
+_gu_hint_x:
+    ld a, (hint_target)           ; TRIAL: the cell gets its X
+    call _game_cell_rc
+    ld d, #CELL_MARK
+    push bc
+    call board_set_cell
+    pop bc
+    call _game_redraw_cell
+    call _game_render_cursor
+    jr _gu_back
+_gu_hint_new:
+    call hint_find
+    ld a, (hint_kind)
+    or a
+    jr z, _gu_back
+    ld a, #1
+    ld (hint_active), a
+    ld (hint_timer), a            ; first phase on the next frame
+    xor a
+    ld (hint_on), a
+    ld a, #HINT_BLINKS
+    ld (hint_toggles), a
+    ld a, #0xFF
+    ld (hint_pos), a
+    call _game_hint_text
 
 _gu_back:
     ld a, (fwk_input_pressed)
     bit 7, a            ; BACK pressed
     jr z, _gu_check_win
-    ;; Return to menu
+    ;; Keep the game for CONTINUE (writes CATDOKU.SAV), then level select
+    call save_store_resume
     ld a, #STATE_LEVEL_SELECT
     ld (game_state), a
     ;; Stop timer
@@ -300,7 +354,9 @@ _gu_check_win:
     ld (game_won), a
     ld a, #1
     ld (game_dirty), a
-    ;; Save progress with level_id and time
+    ;; Save progress with level_id and time; a resumed game is finished
+    ld a, (current_level_id)
+    call save_drop_resume
     ld a, (current_level_id)
     ld hl, (game_timer_seconds)
     call save_write
@@ -473,7 +529,17 @@ _gfc_joins_done:
     call ui_pen_byte
     ld (fc_b4), a                 ; tick pen in both pixels, for now
     ld a, (fc_region)
-    add a, #REGION_FIRST_PEN
+    ld e, a
+    ld d, #0
+    ld hl, #fc_region_pens
+    add hl, de
+    ld a, (hl)
+    ld c, a
+    ld a, (fc_override)
+    cp #0xFF
+    jr nz, _gfc_pen
+    ld a, c
+_gfc_pen:
     call ui_pen_byte
     ld (fc_full), a
     ;; byte 7, lines 0..14: region pixel, then the gap (region or black)
@@ -533,20 +599,18 @@ _gfc_b7:
     ld hl, #board_y
     add a, (hl)
     ld (fc_ptr_y), a
-    ld b, #0                      ; B = line 0..15
-_gfc_line:
-    push bc
     ld a, (fc_ptr_y)
-    add a, b
     ld l, a
     ld h, #0
     ld a, (fc_x)
     ld c, a
-    call fwk_video_get_ptr        ; preserves BC
-    pop bc
+    call fwk_video_get_ptr        ; HL = first byte of line 0
+    ld b, #0                      ; B = line 0..15
+_gfc_line:
     ld a, b
     cp #15
     jr z, _gfc_last
+    push hl
     ld a, (fc_full)
     ld c, #7
 _gfc_byte:
@@ -565,6 +629,13 @@ _gfc_tick:
     ld a, (fc_e7t)
 _gfc_put7:
     ld (hl), a
+    pop hl
+    ld de, #0x0800                ; next line
+    add hl, de
+    jr nc, _gfc_same_row
+    ld de, #0xC050
+    add hl, de
+_gfc_same_row:
     inc b
     jr _gfc_line
 _gfc_last:
@@ -605,8 +676,14 @@ _gfc_last_joined:
     ret
 
 ;; Tick colour of each region (pens 3..11): white on the dark ones, as the design.
+;; Pen of each region: the design's colours, except region 1, violet instead
+;; of yellow (pen 4 stays yellow for the text and the selected boxes): white
+;; X, cursor and hint blink did not show on yellow.
+fc_region_pens:
+    .db PEN_TEAL, PEN_VIOLET, PEN_PINK, PEN_DARK_RED, PEN_ORANGE
+    .db PEN_OLIVE, PEN_SEA_GREEN, PEN_CYAN, PEN_RED
 fc_tick_pens:
-    .db PEN_WHITE, PEN_BLACK, PEN_BLACK, PEN_WHITE, PEN_BLACK
+    .db PEN_WHITE, PEN_WHITE, PEN_BLACK, PEN_WHITE, PEN_BLACK
     .db PEN_BLACK, PEN_BLACK, PEN_BLACK, PEN_BLACK
 
 _game_redraw_cell:
@@ -1151,3 +1228,243 @@ _gds_skip_tens:
     inc ix
     ld (ix), #0
     ret
+
+;; ----------------------------------------------------------------------------
+;; Hint display
+;;   _game_hint_blink: every HINT_BLINK_FRAMES, the hint cells switch between
+;;   white and their colour, HINT_BLINKS times (ending in their colour).
+;;   _game_hint_end: ends the hint shown (cells back, help line back).
+;;   _game_hint_text: the hint in words on the help bar.
+;;   _game_cell_rc: A = cell -> B = row, C = column.
+;; ----------------------------------------------------------------------------
+_game_hint_blink:
+    ld a, (hint_active)
+    or a
+    ret z
+    ld a, (hint_pos)              ; a phase being drawn: the next cells
+    cp #0xFF
+    jr nz, _ghb_draw
+    ld a, (hint_toggles)
+    or a
+    ret z
+    ld hl, #hint_timer
+    dec (hl)
+    ret nz
+    ld (hl), #HINT_BLINK_FRAMES
+    dec a
+    ld (hint_toggles), a
+    ld a, (hint_on)
+    xor #1
+    ld (hint_on), a
+    xor a
+    ld (hint_pos), a
+_ghb_draw:
+    ld a, #HINT_CELLS_PER_FRAME
+    jr _game_hint_cells
+
+_game_hint_end:
+    ld a, (hint_active)
+    or a
+    ret z
+    xor a
+    ld (hint_active), a
+    ld (hint_toggles), a
+    ld a, (hint_on)               ; cells white, or a phase half drawn
+    ld b, a
+    ld a, (hint_pos)
+    inc a                         ; 0xFF -> 0
+    or b
+    jr z, _ghe_help
+    xor a
+    ld (hint_on), a
+    ld (hint_pos), a
+    ld a, #81                     ; all of them now
+    call _game_hint_cells
+_ghe_help:
+    call _game_help_clear
+    ld iy, #str_game_hint
+    jp ui_help
+
+;; Redraws up to A hint cells from hint_pos (white while hint_on); when the
+;; last one is drawn, hint_pos = 0xFF and the cursor is drawn again.
+_game_hint_cells:
+    ld (ghc_left), a
+    ld a, (hint_on)
+    or a
+    ld a, #0xFF
+    jr z, _ghc_pen
+    ld a, #PEN_WHITE
+_ghc_pen:
+    ld (fc_override), a
+    ld a, (catdoku_n)
+    ld b, a
+    ld c, a
+    xor a
+_ghc_nn:
+    add a, b
+    dec c
+    jr nz, _ghc_nn
+    ld (ghc_nn), a
+    ld a, (hint_pos)
+_ghc_cell:
+    ld (ghc_i), a
+    ld hl, #ghc_nn
+    cp (hl)
+    jr z, _ghc_done
+    ld hl, #hint_blink
+    ld e, a
+    ld d, #0
+    add hl, de
+    ld a, (hl)
+    or a
+    jr z, _ghc_next
+    ld a, (ghc_left)
+    or a
+    jr z, _ghc_pause
+    dec a
+    ld (ghc_left), a
+    ld a, (ghc_i)
+    call _game_cell_rc
+    call _game_redraw_cell
+_ghc_next:
+    ld a, (ghc_i)
+    inc a
+    jr _ghc_cell
+_ghc_pause:
+    ld a, (ghc_i)                 ; the rest on the next frame
+    ld (hint_pos), a
+    ld a, #0xFF
+    ld (fc_override), a
+    ret
+_ghc_done:
+    ld a, #0xFF
+    ld (hint_pos), a
+    ld (fc_override), a
+    jp _game_render_cursor
+
+_game_cell_rc:
+    ld b, #0
+    ld hl, #catdoku_n
+_gcr:
+    cp (hl)
+    jr c, _gcr_done
+    sub (hl)
+    inc b
+    jr _gcr
+_gcr_done:
+    ld c, a
+    ret
+
+_game_help_clear:
+    ld b, #HELP_X
+    ld c, #HELP_Y - 3
+    ld d, #HELP_WIDTH
+    ld e, #12
+    ld a, #PEN_DARK_RED
+    jp ui_rect
+
+_game_hint_text:
+    ld de, #hint_text
+    ld a, (hint_kind)
+    cp #HINT_ERR
+    ld hl, #str_hint_err
+    jr z, _ght_copy
+    cp #HINT_RULED
+    ld hl, #str_hint_ruled
+    jr z, _ght_copy
+    cp #HINT_TRIAL
+    ld hl, #str_hint_trial
+    jr z, _ght_copy
+    cp #HINT_ONE
+    jr nz, _ght_fit
+    ld hl, #str_hint_one
+    call _ght_append
+    ld a, (hint_fam_a)
+    call _ght_name
+    jr _ght_show
+_ght_fit:
+    ld a, (hint_k)
+    cp #1
+    jr nz, _ght_many
+    ld hl, #str_hint_this         ; "THIS <A> FITS IN ONE <B>"
+    call _ght_append
+    ld a, (hint_fam_a)
+    call _ght_name
+    ld hl, #str_hint_fits_one
+    call _ght_append
+    ld a, (hint_fam_b)
+    call _ght_name
+    jr _ght_show
+_ght_many:
+    ld hl, #str_hint_these        ; "THESE <k> <A>S FIT IN <k> <B>S"
+    call _ght_append
+    call _ght_digit
+    ld a, (hint_fam_a)
+    call _ght_name
+    ld a, #'S'
+    ld (de), a
+    inc de
+    ld hl, #str_hint_fit_in
+    call _ght_append
+    call _ght_digit
+    ld a, (hint_fam_b)
+    call _ght_name
+    ld a, #'S'
+    ld (de), a
+    inc de
+    jr _ght_show
+_ght_copy:
+    call _ght_append
+_ght_show:
+    xor a
+    ld (de), a
+    call _game_help_clear
+    ld iy, #hint_text
+    jp ui_help_centred
+
+;; Appends the string at HL to DE (without its NUL). Modifies: AF, DE, HL.
+_ght_append:
+    ld a, (hl)
+    or a
+    ret z
+    ld (de), a
+    inc hl
+    inc de
+    jr _ght_append
+
+;; Appends "ROW", "COLUMN" or "REGION" (A = family). Modifies: AF, DE, HL.
+_ght_name:
+    ld hl, #str_hint_row
+    or a
+    jr z, _ght_append
+    ld hl, #str_hint_column
+    dec a
+    jr z, _ght_append
+    ld hl, #str_hint_region
+    jr _ght_append
+
+;; Appends hint_k and a space. Modifies: AF, DE.
+_ght_digit:
+    ld a, (hint_k)
+    add a, #'0'
+    ld (de), a
+    inc de
+    ld a, #' '
+    ld (de), a
+    inc de
+    ret
+
+ghc_i: .db 0
+ghc_left: .db 0
+ghc_nn: .db 0
+str_hint_err: .asciz "THIS X COVERS A CAT"
+str_hint_ruled: .asciz "A CAT RULES OUT THESE CELLS"
+str_hint_trial: .asciz "A CAT HERE LEADS TO A CONTRADICTION"
+str_hint_one: .asciz "ONLY ONE PLACE LEFT IN THIS "
+str_hint_this: .asciz "THIS "
+str_hint_fits_one: .asciz " FITS IN ONE "
+str_hint_these: .asciz "THESE "
+str_hint_fit_in: .asciz " FIT IN "
+str_hint_row: .asciz "ROW"
+str_hint_column: .asciz "COLUMN"
+str_hint_region: .asciz "REGION"

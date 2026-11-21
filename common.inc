@@ -31,6 +31,8 @@
 .globl catdoku_decomp_buffer, catdoku_level_table, catdoku_levels_packed
 .globl save_load, save_is_completed, save_write, save_get_time
 .globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings, save_reset_progress, catdoku_save_count
+.globl save_get_resume, save_store_resume, save_forget_resume, save_drop_resume, menu_start_level, game_timer_base
+.globl hint_find, hint_kind, hint_target, hint_blink, hint_k, hint_fam_a, hint_fam_b
 .globl catdoku_game_palette
 .globl catdoku_save_buffer, catdoku_save_count
 .globl cpct_setPalette_asm, cpct_drawSolidBox_asm, cpct_px2byteM0_asm
@@ -101,6 +103,20 @@ INPUT_BACK = 0x80
 
 ;; ---- Cursor key repeat (frames, 50 per second) ----
 
+;; ---- CATDOKU.SAV: the unfinished game (save.s) ----
+SAVE_RESUME_OFFSET = 8            ; level id (0xFF none), seconds (2), 81 cells
+
+;; ---- Hints (hint.s, tests/hint_model.py) ----
+HINT_NONE = 0
+HINT_ERR = 1                      ; an X on a solution cell
+HINT_RULED = 2                    ; empty cells a placed cat rules out
+HINT_ONE = 3                      ; a unit with a single candidate
+HINT_FIT = 4                      ; k units fit in k units of another family
+HINT_TRIAL = 5                    ; a cat here leads to a contradiction
+HINT_BLINK_FRAMES = 12            ; frames per blink phase
+HINT_BLINKS = 8                   ; phases (white, normal, ...): about 2 s
+HINT_CELLS_PER_FRAME = 8          ; a phase is drawn over several frames
+
 ;; ---- Cell types ----
 CELL_EMPTY = 0
 CELL_CAT = 1
@@ -134,7 +150,7 @@ PEN_SEA_GREEN = 9
 PEN_CYAN = 10
 PEN_RED = 11
 PEN_WHITE = 12
-REGION_FIRST_PEN = 3              ; region r is drawn with pen r + 3 (pens 3..11)
+PEN_VIOLET = 13                   ; region 1 (game.s, fc_region_pens)
 CURSOR_PEN = PEN_WHITE
 
 ;; ---- Audio SFX ids ----
