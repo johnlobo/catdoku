@@ -34,10 +34,7 @@ sprite_cat_desc:: .dw catdoku_cat_pixels, 0, 0
     .db 8, 16                     ; width (bytes), height (lines): .db, not .dw
 sprite_mark_desc:: .dw catdoku_mark_pixels, 0, 0
     .db 8, 16
-sprite_cell_desc:: .dw catdoku_cell_pixels, 0, 0
-    .db 8, 16
-sprite_cursor_desc:: .dw catdoku_cursor_pixels, 0, 0
-    .db 8, 16
+cell_pos: .dw 0, 0                ; screen X (bytes), Y (lines) of the cell being drawn
 game_timer_start:: .dw 0
 game_timer_now:: .dw 0
 game_timer_seconds:: .dw 0
@@ -598,9 +595,9 @@ _grb_col_loop:
     sla a               ; X in bytes: 8 bytes per cell
     ld hl, #board_x
     add a, (hl)
-    ld (sprite_cell_desc + FWK_SPRITE_X), a
+    ld (cell_pos), a
     xor a
-    ld (sprite_cell_desc + FWK_SPRITE_X + 1), a
+    ld (cell_pos + 1), a
     ;; Calculate screen Y = board_y + row * 8
     ld a, b
     sla a
@@ -609,9 +606,9 @@ _grb_col_loop:
     sla a               ; Y: 16 lines per cell
     ld hl, #board_y
     add a, (hl)
-    ld (sprite_cell_desc + FWK_SPRITE_Y), a
+    ld (cell_pos + 2), a
     xor a
-    ld (sprite_cell_desc + FWK_SPRITE_Y + 1), a
+    ld (cell_pos + 2 + 1), a
     ;; Fill cell with region color
     call _game_fill_cell
     ;; Check cell state in marks array
@@ -658,26 +655,26 @@ _grb_no_carry2:
     jr _grb_no_overlay
 _grb_draw_cat:
     ;; Draw cat sprite at same position
-    ld a, (sprite_cell_desc + FWK_SPRITE_X)
+    ld a, (cell_pos)
     ld (sprite_cat_desc + FWK_SPRITE_X), a
-    ld a, (sprite_cell_desc + FWK_SPRITE_X + 1)
+    ld a, (cell_pos + 1)
     ld (sprite_cat_desc + FWK_SPRITE_X + 1), a
-    ld a, (sprite_cell_desc + FWK_SPRITE_Y)
+    ld a, (cell_pos + 2)
     ld (sprite_cat_desc + FWK_SPRITE_Y), a
-    ld a, (sprite_cell_desc + FWK_SPRITE_Y + 1)
+    ld a, (cell_pos + 2 + 1)
     ld (sprite_cat_desc + FWK_SPRITE_Y + 1), a
     ld ix, #sprite_cat_desc
     call fwk_sprite_draw_masked
     jr _grb_no_overlay
 _grb_draw_mark:
     ;; Draw mark sprite at same position
-    ld a, (sprite_cell_desc + FWK_SPRITE_X)
+    ld a, (cell_pos)
     ld (sprite_mark_desc + FWK_SPRITE_X), a
-    ld a, (sprite_cell_desc + FWK_SPRITE_X + 1)
+    ld a, (cell_pos + 1)
     ld (sprite_mark_desc + FWK_SPRITE_X + 1), a
-    ld a, (sprite_cell_desc + FWK_SPRITE_Y)
+    ld a, (cell_pos + 2)
     ld (sprite_mark_desc + FWK_SPRITE_Y), a
-    ld a, (sprite_cell_desc + FWK_SPRITE_Y + 1)
+    ld a, (cell_pos + 2 + 1)
     ld (sprite_mark_desc + FWK_SPRITE_Y + 1), a
     ld ix, #sprite_mark_desc
     call fwk_sprite_draw_masked
