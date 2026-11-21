@@ -33,14 +33,13 @@ sw_level: .db 0
 sl_keep: .db 0                    ; AUTO MARK bit carried over a version change
 sw_time: .dw 0
 
-;; "SAVING..." message: framework window over the board (bytes 24..55, lines
-;; 88..111), yellow border (pen 6), dark blue fill (pen 14). The background is
-;; captured first and put back afterwards.
+;; "SAVING" message: a box over the board (bytes 24..55 = pixels 48..111,
+;; lines 88..111). The background is captured first and put back afterwards.
 SAVE_MSG_WIDTH = 32
 SAVE_MSG_HEIGHT = 24
 save_msg_window: .db 24
     .dw 88
-    .db SAVE_MSG_WIDTH, SAVE_MSG_HEIGHT, 0x3C, 0x3F
+    .db SAVE_MSG_WIDTH, SAVE_MSG_HEIGHT, 0x00, 0x00
 save_msg_background: .ds SAVE_MSG_WIDTH * SAVE_MSG_HEIGHT
 
 ;; fwk_disk_save descriptor (resources/disk.inc). The firmware keeps Mode 0
@@ -55,7 +54,7 @@ save_descriptor:
     .db 0
 ;; catdoku_game_palette as firmware colour numbers (assets/palette.json), then
 ;; the border (blue).
-save_palette_fw: .db 0, 8, 13, 3, 6, 15, 24, 16, 9, 12, 20, 14, 2, 4, 1, 26, 1
+save_palette_fw: .db 0, 1, 13, 10, 24, 17, 3, 15, 12, 19, 23, 6, 26, 4, 21, 25, 1
 save_disk_buffer: .ds FWK_DISK_BUFFER_SIZE
 
 ;; ---- Code area ----
@@ -207,15 +206,19 @@ _save_message_show:
     ld ix, #save_msg_window
     ld de, #save_msg_background
     call fwk_window_capture
-    ld ix, #save_msg_window
-    call fwk_window_draw
-    ld hl, #_str_saving           ; 6 characters, centred: 40 - 6
-    push hl
-    ld hl, #96
-    ld c, #34
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw
+    ld b, #48
+    ld c, #88
+    ld d, #64
+    ld e, #24
+    ld h, #PEN_ORANGE
+    ld l, #PEN_DARK_RED
+    call ui_box
+    ld iy, #_str_saving
+    ld b, #48
+    ld d, #64
+    ld c, #97
+    ld a, #PEN_YELLOW
+    jp ui_text_in
 
 _save_message_hide:
     ld ix, #save_msg_window

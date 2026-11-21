@@ -5,13 +5,13 @@
 .include "video/sprite.inc"
 .include "resources/disk.inc"
 .globl fwk_project_init, fwk_system_wait_frame, fwk_system_frame_count
-.globl catdoku_palette, catdoku_cat_pixels, catdoku_mark_pixels, catdoku_icon_pixels
+.globl catdoku_palette, catdoku_cat_pixels, catdoku_mark_pixels
+.globl ui_show_background, ui_rect, ui_box, ui_pattern, ui_text, ui_text_in, ui_help, ui_help_centred, ui_pen_byte
+.globl ui_bg_table, ui_font
 .globl catdoku_sprites
 .globl fwk_video_init, fwk_video_clear_visible, fwk_video_get_ptr, fwk_video_plot_byte
-.globl fwk_text_init, fwk_text_draw, fwk_text_draw_centered, fwk_text_draw_clear, fwk_text_set_color, fwk_text_draw_small_u8, fwk_text_draw_small_digit, fwk_text_set_colors
-;; Internal text variables not exported - use fwk_text_set_color and fwk_text_draw_small_u8 instead
 .globl fwk_input_init, fwk_input_set_bindings, fwk_input_update, fwk_input_held, fwk_input_pressed, fwk_input_released, fwk_input_repeat
-.globl fwk_window_capture, fwk_window_draw, fwk_window_restore
+.globl fwk_window_capture, fwk_window_restore
 .globl fwk_sprite_draw, fwk_sprite_draw_masked, fwk_sprite_draw_masked_recolor
 .globl fwk_transparency_draw
 .globl fwk_zx7b_unpack
@@ -19,7 +19,7 @@
 .globl fwk_audio_init_music, fwk_audio_init_sfx, fwk_audio_start, fwk_audio_stop, fwk_audio_play_sfx
 .globl audio_songStart, audio_sfxSoundEffects
 .globl board_load_level, board_get_cell, board_set_cell, board_check_win, board_get_hint, board_get_mark
-.globl menu_update, level_select_update, rules_update, confirm_new_update, game_update, game_draw_number_at, help_draw_line, menu_dirty
+.globl menu_update, level_select_update, rules_update, confirm_new_update, game_update, game_draw_number_at, menu_dirty, menu_title_box, menu_text_centred
 .globl str_game_time
 .globl str_game_victory
 .globl str_timeup
@@ -48,12 +48,46 @@ STATE_LOST = 6                    ; a cat on a cell without one: game over
 STATE_RULES = 7                   ; rules screen, from the main menu
 STATE_CONFIRM_NEW = 8             ; NEW GAME with progress: confirm erasing it
 
-;; ---- Main menu: NEW GAME, CONTINUE, RULES, AUTO MARK ----
-MENU_ITEM_Y = 120
-MENU_ITEM_STEP = 18
-MENU_ITEM_Y1 = 138                ; MENU_ITEM_Y + 1 step (sdas: no precedence)
-MENU_ITEM_Y2 = 156
-MENU_ITEM_Y3 = 174
+;; ---- Main menu: NEW GAME, CONTINUE, RULES, AUTO MARK (boxes of the design) ----
+MENU_BOX_X = 35
+MENU_BOX_W = 90
+MENU_BOX_H = 13
+MENU_ITEM_Y = 116                 ; top of the first box
+MENU_ITEM_STEP = 17
+
+;; ---- Level select: 8 x 5 boxes, difficulty box, BEST box ----
+LS_BOX_X = 10                     ; first column; then every LS_BOX_STEP_X
+LS_BOX_Y = 54
+LS_BOX_STEP_X = 18
+LS_BOX_STEP_Y = 20
+LS_BOX_W = 14
+LS_BOX_H = 15
+LS_DIFF_X = 53
+LS_DIFF_Y = 32
+LS_DIFF_W = 54
+LS_DIFF_H = 15
+LS_BEST_X = 52
+LS_BEST_Y = 156
+LS_BEST_W = 56
+LS_BEST_H = 15
+
+;; ---- Game screen ----
+TIME_BOX_X = 56                   ; inside of the TIME box of the background
+TIME_BOX_Y = 10
+TIME_BOX_W = 48
+TIME_BOX_H = 13
+TIME_TEXT_Y = 14
+
+;; ---- Help bar (backgrounds: x 6..153, text rows 186..191) ----
+HELP_X = 6
+HELP_Y = 186
+HELP_WIDTH = 148
+
+;; ---- Backgrounds (ui_show_background) ----
+UI_BG_MENU = 0
+UI_BG_LEVELS = 1
+UI_BG_GAME = 2
+UI_BG_PLAIN = 3
 
 ;; ---- Input actions (bit positions) ----
 INPUT_UP = 0x01
@@ -81,23 +115,27 @@ CATDOKU_DIFFICULTIES = 5
 CATDOKU_LEVELS_PER_DIFF = 40      ; CATDOKU_NUM_LEVELS / CATDOKU_DIFFICULTIES
 CATDOKU_DECOMP_BUFFER_SIZE = 128
 
-;; ---- Screen dimensions ----
-CATDOKU_CELL_SIZE = 8
-;; Board position: board_x / board_y (board.s), centred for each n by board_load_level
+;; ---- Board geometry ----
+;; Cell (r,c) starts at byte board_x + 8c, line board_y + 16r: 15x15 pixels of
+;; its region, then a 1-pixel gap (black between regions, region colour with a
+;; 2-pixel tick inside one). board_x / board_y: board.s, centred for each n.
 
-;; ---- Cursor: yellow frame one pixel outside the cell ----
-CURSOR_PEN = 6               ; yellow (HW 0x0A) in _orig_palette
-;; Pen 14 (firmware 1, dark blue) is the X and the cat outline in assets/src/sprites.png:
-;; no region or text colour may use it.
-CURSOR_BYTE = 0x3C           ; pen 6 in both Mode 0 pixels
-;; Region r is drawn with pen r+1, skipping CURSOR_PEN so no region shares the cursor colour.
-
-;; ---- Text colours: fwk_text_set_color indices (framework/src/ui/text.s table) ----
-TEXT_WHITE = 0                    ; pen 15
-TEXT_YELLOW = 1                   ; pen 6
-TEXT_GREEN = 8                    ; pen 8
-TEXT_LABEL = 5                    ; pen 11, light blue: labels of the help line
-TEXT_GREY = 3                     ; pen 2 (firmware 13, grey): disabled menu item
+;; ---- Palette: assets/palette.json, main.s, copied from the design ----
+PEN_BLACK = 0
+PEN_DARK_BLUE = 1                 ; box corners, cat outline and X shadow
+PEN_GREY = 2                      ; disabled menu item
+PEN_TEAL = 3
+PEN_YELLOW = 4
+PEN_PINK = 5
+PEN_DARK_RED = 6
+PEN_ORANGE = 7
+PEN_OLIVE = 8
+PEN_SEA_GREEN = 9
+PEN_CYAN = 10
+PEN_RED = 11
+PEN_WHITE = 12
+REGION_FIRST_PEN = 3              ; region r is drawn with pen r + 3 (pens 3..11)
+CURSOR_PEN = PEN_WHITE
 
 ;; ---- Audio SFX ids ----
 SFX_CAT = 0

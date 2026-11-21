@@ -44,6 +44,16 @@ ls_cy: .db 0
 ls_cw: .db 0
 ls_cn: .db 0
 ls_num: .db 0, 0, 0               ; two digits + NUL
+ls_text_pen: .db 0
+ls_partial: .db 0                 ; 1: difficulty change, the background stays
+ls_old_diff: .db 0
+menu_prev: .db 0                  ; item to redraw unselected after a move
+mdi_item: .db 0                   ; _menu_draw_item
+mdi_y: .db 0
+mdi_pen: .db 0
+menu_item_strings: .dw str_menu_new, str_menu_cont, str_menu_rules, str_menu_auto_off
+;; Paw in the selected box (5x5, bit 7 = left pixel)
+menu_paw: .db 0x50, 0xA8, 0x20, 0x70, 0x70
 
 ;; ---- Code area ----
 .area _CODE
@@ -63,13 +73,11 @@ menu_update::
     ld a, (menu_selection)
     or a
     jr z, _mu_down
-    ;; toggle old, move, toggle new
-    call _menu_toggle_indicator
-    ld a, (menu_selection)
+    ld (menu_prev), a
     dec a
     call _menu_skip_continue_up
     ld (menu_selection), a
-    call _menu_toggle_indicator
+    call _menu_redraw_moved
 _mu_down:
     ld a, (fwk_input_pressed)
     bit 1, a            ; DOWN
@@ -77,12 +85,12 @@ _mu_down:
     ld a, (menu_selection)
     cp #3                         ; last item: AUTO MARK
     jr z, _mu_enter
-    call _menu_toggle_indicator
     ld a, (menu_selection)
+    ld (menu_prev), a
     inc a
     call _menu_skip_continue_down
     ld (menu_selection), a
-    call _menu_toggle_indicator
+    call _menu_redraw_moved
 _mu_enter:
     ld a, (fwk_input_pressed)
     bit 4, a            ; ENTER
@@ -96,7 +104,8 @@ _mu_enter:
     jr nz, _mu_continue
     ;; AUTO MARK: flip it, show it, keep it on the disc
     call save_toggle_auto_mark
-    call _menu_draw_auto_mark
+    ld a, #3
+    call _menu_draw_item
     call save_write_settings
     ld a, #SFX_NAV
     ld b, #10
@@ -168,46 +177,26 @@ _mu_check_dirty:
     ret z
     xor a
     ld (menu_dirty), a
-    ;; Clear and draw
-    xor a
-    call fwk_video_clear_visible
-    ;; Title centered in top third (scanline ~40, column ~33 for 7 chars)
-    ld hl, #str_menu_title
-    ld b, #40
-    ld c, #33
-    call _menu_draw_text_at
-    ;; Options centered in bottom third
-    ld hl, #str_menu_new
-    ld b, #MENU_ITEM_Y
-    ld c, #32                     ; centred: 40 - length
-    call _menu_draw_text_at
-    ;; CONTINUE in grey, and never selected, while nothing is completed
+    ld a, #UI_BG_MENU
+    call ui_show_background
+    ;; CONTINUE is grey, and never selected, while nothing is completed
     ld a, (catdoku_save_count)
     or a
-    ld a, #TEXT_WHITE
-    jr nz, _mu_cont_colour
+    jr nz, _mu_items
     ld a, (menu_selection)
     cp #1
-    jr nz, _mu_cont_grey
+    jr nz, _mu_items
     xor a
     ld (menu_selection), a
-_mu_cont_grey:
-    ld a, #TEXT_GREY
-_mu_cont_colour:
-    call fwk_text_set_color
-    ld hl, #str_menu_cont
-    ld b, #MENU_ITEM_Y1
-    ld c, #32
-    call _menu_draw_text_at
-    ld a, #TEXT_WHITE
-    call fwk_text_set_color
-    ld hl, #str_menu_rules
-    ld b, #MENU_ITEM_Y2
-    ld c, #35                     ; 5 characters
-    call _menu_draw_text_at
-    call _menu_draw_auto_mark
-    ;; Selection indicator (XOR marker)
-    call _menu_toggle_indicator
+_mu_items:
+    xor a
+_mu_item_loop:
+    push af
+    call _menu_draw_item
+    pop af
+    inc a
+    cp #4
+    jr nz, _mu_item_loop
     ret
 
 ;; ----------------------------------------------------------------------------
@@ -243,6 +232,7 @@ _ls_play:
     bit 5, a                      ; SPACE: next difficulty
     jr z, _ls_move
     ld a, (level_select_diff)
+    ld (ls_old_diff), a
     inc a
     cp #CATDOKU_DIFFICULTIES
     jr c, _ls_diff_ok
@@ -251,6 +241,7 @@ _ls_diff_ok:
     ld (level_select_diff), a
     ld a, #1
     ld (menu_dirty), a
+    ld (ls_partial), a
     ld a, #SFX_NAV
     ld b, #10
     ld c, #1
@@ -328,10 +319,16 @@ _ls_start:
     ret
 
 ;; In: A = item 0..39. Out: A = level id = difficulty*40 + item. Modifies B, C.
+;; _ls_level_id_of: the same with C = difficulty.
 _ls_level_id:
     ld b, a
     ld a, (level_select_diff)
     ld c, a
+    jr _ls_level_id_c
+_ls_level_id_of:
+    ld b, a
+    ld a, c
+_ls_level_id_c:
     add a, a                      ; x2
     add a, a                      ; x4
     add a, c                      ; x5
@@ -342,16 +339,25 @@ _ls_level_id:
     ret
 
 _ls_draw_all:
-    xor a
-    call fwk_video_clear_visible
-    xor a
-    call fwk_text_set_color
-    ld hl, #str_ls_title
-    ld b, #12
-    call _menu_draw_centered
-    ;; difficulty name, yellow
-    ld a, #TEXT_YELLOW
-    call fwk_text_set_color
+    ;; The background already holds the 40 boxes as unselected, uncompleted
+    ;; levels; only the boxes that differ are drawn. A difficulty change keeps
+    ;; the background and also redraws the levels completed in the old one.
+    ld a, (ls_partial)
+    or a
+    jr nz, _ls_keep_background
+    ld a, #UI_BG_LEVELS
+    call ui_show_background
+    ld a, #0xFF                   ; no old difficulty to undo
+    ld (ls_old_diff), a
+_ls_keep_background:
+    ;; difficulty name, yellow in the teal box
+    ld b, #LS_DIFF_X
+    ld c, #LS_DIFF_Y
+    ld d, #LS_DIFF_W
+    ld e, #LS_DIFF_H
+    ld h, #PEN_SEA_GREEN
+    ld l, #PEN_TEAL
+    call ui_box
     ld a, (level_select_diff)
     add a, a
     ld e, a
@@ -362,33 +368,79 @@ _ls_draw_all:
     inc hl
     ld h, (hl)
     ld l, a
-    ld b, #30
-    call _menu_draw_centered
-    xor a
-    call fwk_text_set_color
-    ;; 40 items
+    push hl
+    pop iy
+    ld b, #LS_DIFF_X
+    ld d, #LS_DIFF_W
+    ld c, #LS_DIFF_Y + 5
+    ld a, #PEN_YELLOW
+    call ui_text_in
+    ;; the boxes that are not as in the background
     xor a
 _ls_all_items:
     push af
+    call _ls_item_differs
+    or a
+    jr z, _ls_all_skip
+    pop af
+    push af
     call _ls_draw_item
+_ls_all_skip:
     pop af
     inc a
     cp #CATDOKU_LEVELS_PER_DIFF
     jr nz, _ls_all_items
     call _ls_draw_best
-    ld hl, #str_ls_help           ; one line at the bottom, 37 chars: column 40 - 37
-    ld b, #190
-    ld c, #3
-    jp help_draw_line
+    ld a, (ls_partial)
+    or a
+    ld a, #0
+    ld (ls_partial), a
+    ret nz
+    ld iy, #str_ls_help
+    jp ui_help
 
-;; In: A = item. Draws its number at col 10+(i%8)*8, line 52+(i/8)*20.
+;; In: A = item. Out: A != 0 when its box differs from the background:
+;; selected, completed, or completed in ls_old_diff. Modifies: AF, BC, DE, HL.
+_ls_item_differs:
+    ld (ls_item), a
+    ld b, a
+    ld a, (level_select_item)
+    cp b
+    jr z, _lid_yes
+    ld a, (ls_item)
+    call _ls_level_id
+    call save_is_completed
+    or a
+    ret nz
+    ld a, (ls_old_diff)
+    cp #CATDOKU_DIFFICULTIES
+    jr nc, _lid_no
+    ld c, a
+    ld a, (ls_item)
+    call _ls_level_id_of
+    call save_is_completed
+    ret
+_lid_no:
+    xor a
+    ret
+_lid_yes:
+    ld a, #1
+    ret
+
+;; In: A = item. Its box at x 10 + (i%8)*18, y 54 + (i/8)*20: yellow with
+;; orange border when selected, else olive border on dark red or black
+;; (alternating, as the design); the number black when selected, sea green
+;; when completed, white otherwise.
 _ls_draw_item:
     ld (ls_item), a
     and #7
+    ld c, a
     add a, a
     add a, a
     add a, a
-    add a, #10
+    add a, c                      ; x9
+    add a, a                      ; x18
+    add a, #LS_BOX_X
     ld (ls_x), a
     ld a, (ls_item)
     srl a
@@ -400,10 +452,8 @@ _ls_draw_item:
     add a, c                      ; row x5
     add a, a
     add a, a                      ; row x20
-    add a, #52
+    add a, #LS_BOX_Y
     ld (ls_y), a
-    ld b, #4                      ; two characters
-    call _ls_clear
     ;; "NN" = item + 1
     ld a, (ls_item)
     inc a
@@ -419,118 +469,88 @@ _ls_tens_done:
     ld (ls_num + 1), a
     ld a, c
     ld (ls_num), a
-    ;; colour: selected yellow, completed green, else white
+    ;; style
     ld a, (level_select_item)
     ld b, a
     ld a, (ls_item)
     cp b
-    ld a, #TEXT_YELLOW
-    jr z, _ls_colour
+    jr nz, _ls_normal
+    ld a, #PEN_BLACK
+    ld (ls_text_pen), a
+    ld h, #PEN_ORANGE
+    ld l, #PEN_YELLOW
+    jr _ls_box
+_ls_normal:
     ld a, (ls_item)
     call _ls_level_id
     call save_is_completed
     or a
-    ld a, #TEXT_WHITE
-    jr z, _ls_colour
-    ld a, #TEXT_GREEN
-_ls_colour:
-    call fwk_text_set_color
-    ld a, (ls_y)
-    ld l, a
-    ld h, #0
-    ld a, (ls_x)
+    ld a, #PEN_WHITE
+    jr z, _ls_pen
+    ld a, #PEN_SEA_GREEN
+_ls_pen:
+    ld (ls_text_pen), a
+    ;; fill: dark red when column + row is even, else black
+    ld a, (ls_item)
     ld c, a
-    call fwk_video_get_ptr
+    srl a
+    srl a
+    srl a
+    add a, c                      ; row + item: same parity as row + column
+    and #1
+    ld l, #PEN_DARK_RED
+    jr z, _ls_fill
+    ld l, #PEN_BLACK
+_ls_fill:
+    ld h, #PEN_OLIVE
+_ls_box:
+    ld a, (ls_x)
+    ld b, a
+    ld a, (ls_y)
+    ld c, a
+    ld d, #LS_BOX_W
+    ld e, #LS_BOX_H
+    call ui_box
+    ld a, (ls_x)
+    add a, #4
+    ld b, a
+    ld a, (ls_y)
+    add a, #4
+    ld c, a
     ld iy, #ls_num
-    call fwk_text_draw
-    xor a
-    jp fwk_text_set_color
+    ld a, (ls_text_pen)
+    jp ui_text
 
-;; "BEST: n" or "BEST: --" for the selected level, line 150.
+;; "BEST: n" or "BEST: --" for the selected level, in its box.
 _ls_draw_best:
-    ld a, #20
-    ld (ls_x), a
-    ld a, #150
-    ld b, #40
-    call _ls_clear
-    ld hl, #str_ls_best
-    ld b, #150
-    ld c, #30
-    call _menu_draw_text_at
+    ld b, #LS_BEST_X
+    ld c, #LS_BEST_Y
+    ld d, #LS_BEST_W
+    ld e, #LS_BEST_H
+    ld h, #PEN_ORANGE
+    ld l, #PEN_DARK_RED
+    call ui_box
+    ld iy, #str_ls_best
+    ld b, #LS_BEST_X + 8
+    ld c, #LS_BEST_Y + 5
+    ld a, #PEN_YELLOW
+    call ui_text
     ld a, (level_select_item)
     call _ls_level_id
     call save_get_time
     ld a, h
     or l
     jr z, _ls_no_best
-    ld b, #150
-    ld c, #42
+    ld b, #LS_BEST_X + 32
+    ld c, #LS_BEST_Y + 5
+    ld a, #PEN_WHITE
     jp game_draw_number_at
 _ls_no_best:
-    ld hl, #str_ls_none
-    ld b, #150
-    ld c, #42
-    jp _menu_draw_text_at
-
-;; In: A = top line, B = width in bytes, ls_x = first byte. Clears 9 lines.
-_ls_clear:
-    ld (ls_cy), a
-    ld a, b
-    ld (ls_cw), a
-    ld a, #9
-    ld (ls_cn), a
-_ls_clear_line:
-    ld a, (ls_cy)
-    ld l, a
-    ld h, #0
-    ld a, (ls_x)
-    ld c, a
-    call fwk_video_get_ptr
-    ld a, (ls_cw)
-    ld b, a
-_ls_clear_byte:
-    ld (hl), #0
-    inc hl
-    djnz _ls_clear_byte
-    ld a, (ls_cy)
-    inc a
-    ld (ls_cy), a
-    ld a, (ls_cn)
-    dec a
-    ld (ls_cn), a
-    jr nz, _ls_clear_line
-    ret
-
-;; In: HL = string, B = line. Draws it centred (fwk_text_draw_centered).
-_menu_draw_centered:
-    push hl
-    ld l, b
-    ld h, #0
-    ld c, #0
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw_centered
-
-_menu_draw_text:
-    ;; In: HL = string ptr, B = scanline Y (column 4)
-    ;; Out: none
-    push hl
-    ld l, b
-    ld h, #0
-    ld c, #4
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw
-
-_menu_draw_text_at:
-    ;; In: HL = string ptr, B = scanline Y, C = column
-    ;; Out: none
-    push hl
-    ld l, b
-    ld h, #0
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw
+    ld iy, #str_ls_none
+    ld b, #LS_BEST_X + 32
+    ld c, #LS_BEST_Y + 5
+    ld a, #PEN_WHITE
+    jp ui_text
 
 ;; In: A = menu item after moving up / down. Out: A, skipping CONTINUE (1)
 ;; while it is disabled. Modifies: AF.
@@ -565,27 +585,21 @@ confirm_new_update::
     jr z, _cn_input
     xor a
     ld (menu_dirty), a
-    call fwk_video_clear_visible
-    ld a, #TEXT_YELLOW
-    call fwk_text_set_color
-    ld hl, #str_cn_question
-    ld b, #70
-    call _menu_draw_centered
-    ld a, #TEXT_WHITE
-    call fwk_text_set_color
-    ld hl, #str_cn_detail_1
-    ld b, #95
-    call _menu_draw_centered
-    ld hl, #str_cn_detail_2
-    ld b, #107
-    call _menu_draw_centered
-    ld a, #TEXT_LABEL
-    call fwk_text_set_color
-    ld hl, #str_cn_keys
-    ld b, #140
-    call _menu_draw_centered
-    ld a, #TEXT_WHITE
-    jp fwk_text_set_color
+    ld a, #UI_BG_PLAIN
+    call ui_show_background
+    ld iy, #str_cn_question
+    ld c, #60
+    call menu_title_box
+    ld iy, #str_cn_detail_1
+    ld c, #95
+    ld a, #PEN_WHITE
+    call menu_text_centred
+    ld iy, #str_cn_detail_2
+    ld c, #105
+    ld a, #PEN_WHITE
+    call menu_text_centred
+    ld iy, #str_cn_keys
+    jp ui_help_centred
 _cn_input:
     ld a, (fwk_input_pressed)
     bit 7, a                      ; ESC: keep everything
@@ -620,15 +634,19 @@ rules_update::
     jr z, _ru_wait
     xor a
     ld (menu_dirty), a
-    call fwk_video_clear_visible
+    ld a, #UI_BG_PLAIN
+    call ui_show_background
+    ld iy, #str_rules_title
+    ld c, #16
+    call menu_title_box
+    ld iy, #str_rules_key
+    call ui_help_centred
     ld hl, #rules_lines
 _ru_line:
-    ld a, (hl)                    ; scanline, 0 ends the table
+    ld a, (hl)                    ; line, 0 ends the table
     or a
     jr z, _ru_wait
-    ld b, a
-    inc hl
-    ld a, (hl)                    ; text colour
+    ld c, a
     inc hl
     ld e, (hl)
     inc hl
@@ -636,45 +654,37 @@ _ru_line:
     inc hl
     push hl
     push de
-    push bc
-    call fwk_text_set_color
-    pop bc
-    pop hl                        ; HL = string
-    call _menu_draw_centered
+    pop iy
+    ld a, #PEN_WHITE
+    call menu_text_centred
     pop hl
     jr _ru_line
 _ru_wait:
     ld a, (fwk_input_pressed)
     or a
     ret z
-    ld a, #TEXT_WHITE
-    call fwk_text_set_color
     ld a, #STATE_MENU
     ld (game_state), a
     ld a, #1
     ld (menu_dirty), a
     ret
 
-;; scanline, colour, string; 0 ends
+;; line, string; 0 ends
 rules_lines:
-    .db 20, TEXT_YELLOW
-    .dw str_rules_title
-    .db 50, TEXT_WHITE
+    .db 48
     .dw str_rules_1
-    .db 62, TEXT_WHITE
+    .db 58
     .dw str_rules_2
-    .db 74, TEXT_WHITE
+    .db 68
     .dw str_rules_3
-    .db 98, TEXT_WHITE
+    .db 90
     .dw str_rules_4
-    .db 110, TEXT_WHITE
+    .db 100
     .dw str_rules_5
-    .db 134, TEXT_WHITE
+    .db 122
     .dw str_rules_6
-    .db 146, TEXT_WHITE
+    .db 144
     .dw str_rules_7
-    .db 180, TEXT_LABEL
-    .dw str_rules_key
     .db 0
 str_rules_title: .asciz "RULES"
 str_rules_1: .asciz "PLACE ONE CAT IN EVERY ROW"
@@ -686,85 +696,147 @@ str_rules_6: .asciz "NO GUESSING NEEDED: MARK WITH X"
 str_rules_7: .asciz "A CAT IN THE WRONG CELL ENDS THE GAME"
 str_rules_key: .asciz "PRESS ANY KEY"
 
-_menu_draw_auto_mark:
-    ;; "AUTO MARK:ON" over "AUTO MARK:OFF": clear 13 cells, then draw
-    ld hl, #MENU_ITEM_Y3
-    ld c, #27
-    call fwk_video_get_ptr
-    push hl
-    call save_get_auto_mark
-    ld iy, #str_menu_auto_off
-    or a
-    jr z, _mdam_draw
-    ld iy, #str_menu_auto_on
-_mdam_draw:
-    pop hl
-    ld b, #13
-    ld c, #0
-    jp fwk_text_draw_clear
-
-_menu_sel_y:
-    ;; In: none; uses menu_selection
-    ;; Out: A = scanline Y (MENU_ITEM_Y + selection * MENU_ITEM_STEP)
+;; ----------------------------------------------------------------------------
+;; _menu_redraw_moved
+;;   After a move: menu_prev drawn unselected, menu_selection selected.
+;; _menu_draw_item
+;;   In: A = item 0..3. Its box: yellow with orange border, the paw and black
+;;   text when selected; else dark red with olive border and white text (grey
+;;   for CONTINUE while nothing is completed). Item 3 shows AUTO MARK:ON/OFF.
+;;   Modifies: AF, BC, DE, HL, IY.
+;; ----------------------------------------------------------------------------
+_menu_redraw_moved:
+    ld a, (menu_prev)
+    call _menu_draw_item
+    ld a, (menu_selection)
+    ; fall through
+_menu_draw_item:
+    ld (mdi_item), a
+    ld c, a
+    add a, a
+    add a, a
+    add a, a
+    add a, a
+    add a, c                      ; x17
+    add a, #MENU_ITEM_Y
+    ld (mdi_y), a
     ld a, (menu_selection)
     ld b, a
-    ld a, #0
-    or b
-    jr z, _msy_done
-    ld c, #MENU_ITEM_STEP
-_msy_mul:
-    add a, c
-    djnz _msy_mul
-_msy_done:
-    add a, #MENU_ITEM_Y
-    ret
-
-_menu_toggle_indicator:
-    ;; XOR a cat sprite at the current selection's indicator position
-    call _menu_sel_y
-    ld (catdoku_temp_row), a   ; base Y
-    xor a
-    ld (catdoku_temp_col), a   ; row 0
-_mt_row:
-    ld a, (catdoku_temp_col)
-    cp #8
-    jr z, _mt_done
-    ; scanline = base Y + row
-    ld a, (catdoku_temp_row)
-    ld b, a
-    ld a, (catdoku_temp_col)
-    add a, b
-    ld l, a
-    ld h, #0
-    ld c, #22                    ; marker left of the centred items
-    call fwk_video_get_ptr       ; HL = dest
-    push hl
-    ; sprite row pointer = catdoku_icon_pixels + row*8: an 8x8 cat in the
-    ; top-left corner of a 16x16 tile (8 bytes per row, the first 4 used)
-    ld a, (catdoku_temp_col)
-    sla a
-    sla a
-    sla a
+    ld a, (mdi_item)
+    cp b
+    jr nz, _mdi_normal
+    ld a, #PEN_BLACK
+    ld (mdi_pen), a
+    ld h, #PEN_ORANGE
+    ld l, #PEN_YELLOW
+    call _mdi_box
+    ld hl, #menu_paw
+    ld b, #MENU_BOX_X + 5
+    ld a, (mdi_y)
+    add a, #4
     ld c, a
-    ld b, #0
-    ld hl, #catdoku_icon_pixels
-    add hl, bc
-    ex de, hl                    ; DE = sprite row
-    pop hl                       ; HL = dest
-    ; XOR 4 bytes
-    ld b, #4
-_mt_byte:
-    ld a, (de)
-    xor (hl)
-    ld (hl), a
-    inc de
+    ld de, #0x0505
+    ld a, #PEN_DARK_RED
+    call ui_pattern
+    jr _mdi_text
+_mdi_normal:
+    ld a, #PEN_WHITE
+    ld (mdi_pen), a
+    ld a, (mdi_item)
+    cp #1
+    jr nz, _mdi_box_normal
+    ld a, (catdoku_save_count)
+    or a
+    jr nz, _mdi_box_normal
+    ld a, #PEN_GREY
+    ld (mdi_pen), a
+_mdi_box_normal:
+    ld h, #PEN_OLIVE
+    ld l, #PEN_DARK_RED
+    call _mdi_box
+_mdi_text:
+    ld a, (mdi_item)
+    add a, a
+    ld e, a
+    ld d, #0
+    ld hl, #menu_item_strings
+    add hl, de
+    ld a, (hl)
     inc hl
-    djnz _mt_byte
-    ; next row
-    ld a, (catdoku_temp_col)
-    inc a
-    ld (catdoku_temp_col), a
-    jr _mt_row
-_mt_done:
-    ret
+    ld h, (hl)
+    ld l, a
+    ld a, (mdi_item)
+    cp #3
+    jr nz, _mdi_string
+    call save_get_auto_mark
+    or a
+    ld hl, #str_menu_auto_off
+    jr z, _mdi_string
+    ld hl, #str_menu_auto_on
+_mdi_string:
+    push hl
+    pop iy
+    ld b, #MENU_BOX_X
+    ld d, #MENU_BOX_W
+    ld a, (mdi_y)
+    add a, #4
+    ld c, a
+    ld a, (mdi_pen)
+    jp ui_text_in
+_mdi_box:
+    ld b, #MENU_BOX_X
+    ld a, (mdi_y)
+    ld c, a
+    ld d, #MENU_BOX_W
+    ld e, #MENU_BOX_H
+    jp ui_box
 
+;; ----------------------------------------------------------------------------
+;; menu_title_box
+;;   In: IY = string, C = top line. A 15-line box with orange border and dark
+;;   red fill, as wide as the text plus 12 pixels and centred, the text yellow.
+;;   Modifies: AF, BC, DE, HL, IY.
+;; menu_text_centred
+;;   In: IY = string, C = line, A = pen. Centred on the screen.
+;;   Modifies: AF, BC, DE, HL, IY.
+;; ----------------------------------------------------------------------------
+menu_title_box::
+    push iy
+    pop hl
+    ld e, #0
+_mtb_len:
+    ld a, (hl)
+    or a
+    jr z, _mtb_len_done
+    inc hl
+    inc e
+    jr _mtb_len
+_mtb_len_done:
+    ld a, e
+    add a, a
+    add a, a
+    add a, #11                    ; text width (4n - 1) + 12
+    ld d, a
+    ld a, #160
+    sub d
+    srl a
+    ld b, a
+    push bc
+    push de
+    push iy
+    ld e, #15
+    ld h, #PEN_ORANGE
+    ld l, #PEN_DARK_RED
+    call ui_box
+    pop iy
+    pop de
+    pop bc
+    ld a, c
+    add a, #5
+    ld c, a
+    ld a, #PEN_YELLOW
+    jp ui_text_in
+menu_text_centred::
+    ld b, #0
+    ld d, #160
+    jp ui_text_in

@@ -23,11 +23,19 @@ fc_region: .db 0                  ; _game_fill_cell: region of the cell
 fc_right: .db 0                   ; 1: right neighbour in the same region
 fc_down: .db 0                    ; 1: cell below in the same region
 fc_corner: .db 0                  ; 1: right, below and diagonal all the same
-fc_lines: .db 0                   ; 6, or 8 when joined downwards
-cursor_paint: .db 0        ; byte written into the frame pixels (CURSOR_BYTE or 0)
-cursor_x: .db 0            ; first frame byte of the current line
-cursor_y: .db 0            ; top line of the frame
-cursor_hline_masks: .db 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xAA
+fc_full: .db 0                    ; region pen in both pixels
+fc_e7: .db 0                      ; byte 7 of lines 0..14: region + right gap
+fc_e7t: .db 0                     ; byte 7 of lines 7 and 8: region + gap tick
+fc_b3: .db 0                      ; line 15, byte 3: region + tick
+fc_b4: .db 0                      ; line 15, byte 4: tick + region
+fc_b7: .db 0                      ; line 15, byte 7: region + corner
+fc_ptr_y: .db 0
+gdf_x: .db 0                      ; _game_draw_frame
+gdf_y: .db 0
+gdf_size: .db 0
+fc_x: .db 0
+cursor_px: .db 0                  ; cursor corners: left / top pixel
+cursor_py: .db 0
 
 ;; Sprite descriptors (8 bytes each)
 sprite_cat_desc:: .dw catdoku_cat_pixels, 0, 0
@@ -45,11 +53,6 @@ seconds_dirty:: .db 0
 game_seconds_buf:: .ds 6
 game_time_str: .ascii "TIME:"     ; "TIME:" + up to 3 digits + NUL, drawn centred
 game_time_digits: .ds 4
-help_ptr: .dw 0
-help_x: .db 0
-help_y: .db 0
-help_colour: .db 0
-help_char: .db 0, 0            ; one character + NUL
 
 str_game_title:: .asciz "CATDOKU"
 str_game_time:: .asciz "TIME:"
@@ -314,24 +317,84 @@ _gu_render:
     ;; Full redraw when game_dirty
     ld a, (game_dirty)
     or a
-    jr z, _gu_seconds_update
+    jp z, _gu_seconds_update
     xor a
     ld (game_dirty), a
     xor a
     ld (seconds_dirty), a
-    ;; Clear screen
-    xor a
-    call fwk_video_clear_visible
-    ;; "TIME:<seconds>" centred on the top line
+    ;; Background (frame, TIME box, help bar), then the dynamic parts
+    ld a, #UI_BG_GAME
+    call ui_show_background
     call _game_draw_time
-    ;; Controls help, one line at the bottom (37 chars, centred: 40 - 37)
-    ld hl, #str_game_hint
-    ld b, #190
-    ld c, #3
-    call help_draw_line
-    ;; Render board
-    call _game_render_board
-    ret
+    ld iy, #str_game_hint
+    call ui_help
+    call _game_draw_frame
+    jp _game_render_board
+
+;; Orange 1-pixel frame two pixels around the board (16n + 4 pixels a side).
+;; Modifies: AF, BC, DE, HL.
+_game_draw_frame:
+    ld a, (catdoku_n)
+    add a, a
+    add a, a
+    add a, a
+    add a, a
+    add a, #4
+    ld (gdf_size), a
+    ld a, (board_x)
+    add a, a
+    sub #2
+    ld (gdf_x), a
+    ld a, (board_y)
+    sub #2
+    ld (gdf_y), a
+    ;; top
+    call _gdf_rect_h
+    ld a, (gdf_size)
+    dec a
+    ld e, a
+    ld a, (gdf_y)
+    add a, e
+    ld c, a                       ; bottom
+    ld a, (gdf_x)
+    ld b, a
+    ld a, (gdf_size)
+    ld d, a
+    ld e, #1
+    ld a, #PEN_ORANGE
+    call ui_rect
+    ld a, (gdf_x)                 ; left
+    ld b, a
+    ld a, (gdf_y)
+    ld c, a
+    ld d, #1
+    ld a, (gdf_size)
+    ld e, a
+    ld a, #PEN_ORANGE
+    call ui_rect
+    ld a, (gdf_size)              ; right
+    dec a
+    ld b, a
+    ld a, (gdf_x)
+    add a, b
+    ld b, a
+    ld a, (gdf_y)
+    ld c, a
+    ld d, #1
+    ld a, (gdf_size)
+    ld e, a
+    ld a, #PEN_ORANGE
+    jp ui_rect
+_gdf_rect_h:
+    ld a, (gdf_x)
+    ld b, a
+    ld a, (gdf_y)
+    ld c, a
+    ld a, (gdf_size)
+    ld d, a
+    ld e, #1
+    ld a, #PEN_ORANGE
+    jp ui_rect
 
 _gu_seconds_update:
     ;; Redraw the time each second
@@ -343,12 +406,12 @@ _gu_seconds_update:
     jp _game_draw_time
 
 _game_fill_cell:
-    ;; In: B=row, C=col. Fills the cell (7 bytes x 14 lines) with its region
-    ;; colour (region+1 pen). The gaps to the right (1 byte, 2 pixels) and
-    ;; below (2 lines) are filled too when the neighbour is in the same region,
-    ;; so each region reads as one shape with black lines only on its borders.
-    ;; The gaps hold no sprite pixels (cat and X sit inside the 14x14 area).
-    ;; Preserves BC (cpct_px2byteM0_asm destroys B and DE).
+    ;; In: B=row, C=col. Draws the cell: 15x15 pixels of its region colour
+    ;; (pen region+3), then its gaps: the pixel column on the right and the
+    ;; line below. A gap towards a cell of the same region takes the region
+    ;; colour with a 2-pixel tick in the middle; towards another region it is
+    ;; black. The bottom-right corner pixel joins when the right, lower and
+    ;; diagonal cells are all in the region. Preserves BC.
     push bc
     call board_get_cell
     ld (fc_region), a
@@ -400,80 +463,151 @@ _gfc_no_right:
     ld a, #1
     ld (fc_corner), a
 _gfc_joins_done:
-    ld a, (fc_down)
-    add a, a
-    add a, #14
-    ld (fc_lines), a
-    push bc
     push bc
     ld a, (fc_region)
-    inc a
-    cp #CURSOR_PEN
-    jr c, _gfc_pen_ok
-    inc a                         ; skip the cursor pen
-_gfc_pen_ok:
-    ld h, a
-    ld l, a
-    call cpct_px2byteM0_asm
-    ld d, a
-    pop bc
-    ; start scanline = board_y + 1 + row*16
-    ld a, b
-    sla a
-    sla a
-    sla a
-    sla a
-    ld hl, #board_y               ; first filled line: board_y + 1
-    add a, (hl)
-    inc a
-    ld (catdoku_temp_row), a
-    ; start column (bytes) = board_x + col*8
+    ld e, a
+    ld d, #0
+    ld hl, #fc_tick_pens
+    add hl, de
+    ld a, (hl)
+    call ui_pen_byte
+    ld (fc_b4), a                 ; tick pen in both pixels, for now
+    ld a, (fc_region)
+    add a, #REGION_FIRST_PEN
+    call ui_pen_byte
+    ld (fc_full), a
+    ;; byte 7, lines 0..14: region pixel, then the gap (region or black)
+    and #0xAA
+    ld c, a                       ; C = region in the left pixel only
+    ld a, (fc_right)
+    or a
     ld a, c
-    sla a
-    sla a
-    sla a
+    jr z, _gfc_e7
+    ld a, (fc_full)
+_gfc_e7:
+    ld (fc_e7), a
+    ;; lines 7 and 8: the gap holds the tick when joined
+    ld a, (fc_right)
+    or a
+    ld a, c
+    jr z, _gfc_e7t
+    ld a, (fc_b4)
+    and #0x55
+    or c
+_gfc_e7t:
+    ld (fc_e7t), a
+    ;; line 15 (gap below): bytes 3 and 4 hold the 2-pixel tick
+    ld a, (fc_b4)
+    and #0x55
+    or c
+    ld (fc_b3), a
+    ld a, (fc_full)
+    and #0x55
+    ld d, a
+    ld a, (fc_b4)
+    and #0xAA
+    or d
+    ld (fc_b4), a
+    ld a, (fc_corner)
+    or a
+    ld a, c
+    jr z, _gfc_b7
+    ld a, (fc_full)
+_gfc_b7:
+    ld (fc_b7), a
+    pop bc
+    push bc
+    ;; first byte = board_x + col*8, first line = board_y + row*16
+    ld a, c
+    add a, a
+    add a, a
+    add a, a
     ld hl, #board_x
     add a, (hl)
-    ld (catdoku_temp_col), a
-    ; fill 14 scanlines (16 with the join below)
-    xor a
-    ld (catdoku_temp_val), a
-_gfc_row:
-    ld a, (catdoku_temp_val)
-    ld hl, #fc_lines
-    cp (hl)
-    jr z, _gfc_done
-    ld a, (catdoku_temp_row)
-    ld b, a
-    ld a, (catdoku_temp_val)
+    ld (fc_x), a
+    ld a, b
+    add a, a
+    add a, a
+    add a, a
+    add a, a
+    ld hl, #board_y
+    add a, (hl)
+    ld (fc_ptr_y), a
+    ld b, #0                      ; B = line 0..15
+_gfc_line:
+    push bc
+    ld a, (fc_ptr_y)
     add a, b
     ld l, a
     ld h, #0
-    ld a, (catdoku_temp_col)
+    ld a, (fc_x)
     ld c, a
-    push de                       ; fwk_video_get_ptr destroys DE, and D holds the colour byte
-    call fwk_video_get_ptr
-    pop de
-    ld a, (catdoku_temp_val)      ; lines 0..13: 7 bytes + right join
-    cp #14                        ; lines 14..15: 7 bytes + corner
-    ld a, (fc_right)
-    jr c, _gfc_width
-    ld a, (fc_corner)
-_gfc_width:
-    add a, #7
-    ld b, a
+    call fwk_video_get_ptr        ; preserves BC
+    pop bc
+    ld a, b
+    cp #15
+    jr z, _gfc_last
+    ld a, (fc_full)
+    ld c, #7
 _gfc_byte:
-    ld a, d
     ld (hl), a
     inc hl
-    djnz _gfc_byte
-    ld a, (catdoku_temp_val)
-    inc a
-    ld (catdoku_temp_val), a
-    jr _gfc_row
-_gfc_done:
+    dec c
+    jr nz, _gfc_byte
+    ld a, b
+    cp #7
+    jr z, _gfc_tick
+    cp #8
+    jr z, _gfc_tick
+    ld a, (fc_e7)
+    jr _gfc_put7
+_gfc_tick:
+    ld a, (fc_e7t)
+_gfc_put7:
+    ld (hl), a
+    inc b
+    jr _gfc_line
+_gfc_last:
+    ;; line 15: the gap below, region + tick when joined, black otherwise
+    ld a, (fc_down)
+    or a
+    jr nz, _gfc_last_joined
+    xor a
+    ld b, #8
+_gfc_last_black:
+    ld (hl), a
+    inc hl
+    djnz _gfc_last_black
     pop bc
     ret
+_gfc_last_joined:
+    ld a, (fc_full)
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld a, (fc_b3)
+    ld (hl), a
+    inc hl
+    ld a, (fc_b4)
+    ld (hl), a
+    inc hl
+    ld a, (fc_full)
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld a, (fc_b7)
+    ld (hl), a
+    pop bc
+    ret
+
+;; Tick colour of each region (pens 3..11): white on the dark ones, as the design.
+fc_tick_pens:
+    .db PEN_WHITE, PEN_BLACK, PEN_BLACK, PEN_WHITE, PEN_BLACK
+    .db PEN_BLACK, PEN_BLACK, PEN_BLACK, PEN_BLACK
 
 _game_redraw_cell:
     ;; In: B=row, C=col. Redraws cell background + overlay
@@ -720,13 +854,9 @@ _gcc_done:
     ret
 
 ;; ----------------------------------------------------------------------------
-;; Cursor: yellow frame one pixel outside the 14x14 cell, drawn in the gap
-;; between cells. With X = board_x + 8c and Y = board_y + 16r, cell (r,c) covers
-;; lines Y+1..Y+14 and bytes X..X+6. The frame uses lines Y and Y+15, the right
-;; pixel of byte X-1 and the left pixel of byte X+7. Mode 0 packs two pixels per byte, so
-;; each byte is masked: 0x55 = right pixel, 0xAA = left pixel, 0xFF = both.
-;; Drawing and erasing write only the frame pixels; nothing else is touched.
-;; Modifies: AF, BC, DE, HL.
+;; Cursor: four white corners inside the cell, as the design. With X, Y the
+;; first pixel of cell (r,c), the corners are at X+1 / X+13 and Y+1 / Y+13,
+;; each 4 pixels long. Erasing redraws the cell.
 ;; ----------------------------------------------------------------------------
 ;; ----------------------------------------------------------------------------
 ;; _game_auto_mark
@@ -832,41 +962,17 @@ _game_move_keys:
     ld (move_keys), a
     ret
 
+;; Modifies: AF, BC, DE, HL.
 _game_render_cursor:
-    ld a, #CURSOR_BYTE
-    jr _game_paint_cursor
-;; The frame sits in the gaps between cells, which may hold region joins:
-;; paint it black, then redraw the four cells whose joins it covers.
-_game_erase_cursor:
-    xor a
-    call _game_paint_cursor
-    ld a, (cursor_row)
-    ld b, a
     ld a, (cursor_col)
-    ld c, a
-    call _gec_cell                ; (row, col): right and bottom gaps
-    dec c
-    call _gec_cell                ; (row, col-1): left gap
-    dec b
-    call _gec_cell                ; (row-1, col-1): top-left corner
-    inc c
-    jp _gec_cell                  ; (row-1, col): top gap
-
-;; B=row, C=col (0xFF when off the board: skipped). Preserves BC.
-_gec_cell:
-    ld a, b
-    cp #CATDOKU_MAX_N
-    ret nc
-    ld a, c
-    cp #CATDOKU_MAX_N
-    ret nc
-    push bc
-    call _game_redraw_cell
-    pop bc
-    ret
-
-_game_paint_cursor:
-    ld (cursor_paint), a
+    add a, a
+    add a, a
+    add a, a
+    ld hl, #board_x
+    add a, (hl)
+    add a, a                      ; pixels
+    add a, #1
+    ld (cursor_px), a
     ld a, (cursor_row)
     add a, a
     add a, a
@@ -874,91 +980,53 @@ _game_paint_cursor:
     add a, a
     ld hl, #board_y
     add a, (hl)
-    ld (cursor_y), a
-    ld a, (cursor_col)
-    add a, a
-    add a, a
-    add a, a
-    ld hl, #board_x
+    add a, #1
+    ld (cursor_py), a
+    ld hl, #cursor_arms
+_grc_arm:
+    ld a, (hl)
+    cp #0xFF
+    ret z
+    ld a, (cursor_px)
     add a, (hl)
-    dec a
-    ld (cursor_x), a
-    ;; top and bottom lines
-    ld a, (cursor_y)
-    call _gpc_hline
-    ld a, (cursor_y)
-    add a, #15
-    call _gpc_hline
-    ;; sides, lines 1..14
-    ld b, #14
-    ld a, (cursor_y)
-    inc a
-_gpc_side_loop:
-    push af
-    call _gpc_side
-    pop af
-    inc a
-    djnz _gpc_side_loop
-    ret
-
-;; A = line: bytes x..x+8 with masks 0x55, 0xFF x 7, 0xAA
-_gpc_hline:
-    call _gpc_line_ptr
-    ld de, #cursor_hline_masks
-    ld b, #9
-_gpc_hline_byte:
-    ld a, (de)
-    call _gpc_apply
-    inc hl
-    inc de
-    djnz _gpc_hline_byte
-    ret
-
-;; A = line: right pixel of byte x, left pixel of byte x+8
-_gpc_side:
-    call _gpc_line_ptr
-    ld a, #0x55
-    call _gpc_apply
-    ld de, #8
-    add hl, de
-    ld a, #0xAA
-    jr _gpc_apply
-
-;; A = line -> HL = screen address of (cursor_x, line). Preserves BC.
-_gpc_line_ptr:
-    ld l, a
-    ld h, #0
-    push bc
-    ld a, (cursor_x)
-    ld c, a
-    call fwk_video_get_ptr
-    pop bc
-    ret
-
-;; A = pixel mask: (HL) = (HL) & ~mask | cursor_paint & mask. Preserves BC, DE, HL.
-_gpc_apply:
-    push bc
-    ld c, a
-    cpl
-    and (hl)
     ld b, a
-    ld a, (cursor_paint)
-    and c
-    or b
-    ld (hl), a
-    pop bc
-    ret
+    inc hl
+    ld a, (cursor_py)
+    add a, (hl)
+    ld c, a
+    inc hl
+    ld d, (hl)
+    inc hl
+    ld e, (hl)
+    inc hl
+    push hl
+    ld a, #CURSOR_PEN
+    call ui_rect
+    pop hl
+    jr _grc_arm
+
+;; dx, dy, width, height of the 8 arms, from (X+1, Y+1)
+cursor_arms:
+    .db 0, 0, 4, 1,   0, 0, 1, 4      ; top left
+    .db 9, 0, 4, 1,   12, 0, 1, 4     ; top right
+    .db 0, 12, 4, 1,  0, 9, 1, 4      ; bottom left
+    .db 9, 12, 4, 1,  12, 9, 1, 4     ; bottom right
+    .db 0xFF
+
+;; The corners sit inside the cell: redrawing it erases them.
+_game_erase_cursor:
+    ld a, (cursor_row)
+    ld b, a
+    ld a, (cursor_col)
+    ld c, a
+    jp _game_redraw_cell
 
 ;; ----------------------------------------------------------------------------
 ;; _game_draw_time
-;;   "TIME:<seconds>" centred on lines 8..16. Clears the widest form first
-;;   ("TIME:999", 16 bytes at columns 32..47), so a shorter one leaves no rest.
+;;   "TIME:<seconds>" centred in the TIME box of the background: the label in
+;;   yellow, the seconds in white. The inside of the box is cleared first.
 ;;   Modifies: AF, BC, DE, HL, IX, IY.
 ;; ----------------------------------------------------------------------------
-TIME_LINE = 8
-TIME_CLEAR_X = 32                 ; 40 - 8 characters
-TIME_CLEAR_WIDTH = 16
-TIME_FONT_LINES = 9
 _game_draw_time:
     ld hl, (game_timer_seconds)
     call _game_format_number
@@ -966,31 +1034,55 @@ _game_draw_time:
     ld de, #game_time_digits
     ld bc, #4
     ldir
-    ld hl, #TIME_LINE
-    ld c, #TIME_CLEAR_X
-    call fwk_video_get_ptr
-    ex de, hl
-    xor a
-    ld b, #TIME_FONT_LINES
-    ld c, #TIME_CLEAR_WIDTH
-    call cpct_drawSolidBox_asm
-    ld hl, #TIME_LINE
-    ld c, #0
-    call fwk_video_get_ptr
-    ld iy, #game_time_str
-    jp fwk_text_draw_centered
+    ld b, #TIME_BOX_X
+    ld c, #TIME_BOX_Y
+    ld d, #TIME_BOX_W
+    ld e, #TIME_BOX_H
+    ld a, #PEN_DARK_RED
+    call ui_rect
+    ;; x = box x + (box width - text width) / 2
+    ld hl, #game_time_str
+    ld e, #0
+_gdt_len:
+    ld a, (hl)
+    or a
+    jr z, _gdt_len_done
+    inc hl
+    inc e
+    jr _gdt_len
+_gdt_len_done:
+    ld a, e
+    add a, a
+    add a, a
+    dec a
+    ld e, a
+    ld a, #TIME_BOX_W
+    sub e
+    srl a
+    add a, #TIME_BOX_X
+    ld b, a
+    ld c, #TIME_TEXT_Y
+    ld iy, #str_game_time
+    ld a, #PEN_YELLOW
+    call ui_text                  ; B = x after "TIME:"
+    ld c, #TIME_TEXT_Y
+    ld iy, #game_time_digits
+    ld a, #PEN_WHITE
+    jp ui_text
 
 ;; ----------------------------------------------------------------------------
 ;; game_draw_number_at
-;;   In: HL = 0..999, B = line, C = column (bytes). Draws it in the big font.
+;;   In: HL = 0..999, B = x, C = y (pixels), A = pen. Draws it in the UI font.
 ;;   Modifies: AF, BC, DE, HL, IX, IY.
 ;; ----------------------------------------------------------------------------
 game_draw_number_at::
+    push af
     push bc
     call _game_format_number
     pop bc
-    ld hl, #game_seconds_buf
-    jp _game_draw_text_at
+    pop af
+    ld iy, #game_seconds_buf
+    jp ui_text
 
 ;; In: HL = 0..999. Out: game_seconds_buf = its decimal digits, NUL ended.
 ;; Modifies: AF, BC, DE, HL, IX.
@@ -1059,75 +1151,3 @@ _gds_skip_tens:
     inc ix
     ld (ix), #0
     ret
-
-_game_draw_text:
-    ;; In: HL = string ptr, B = scanline Y
-    push hl
-    ld l, b
-    ld h, #0
-    ld c, #4
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw
-
-;; ----------------------------------------------------------------------------
-;; help_draw_line
-;;   In: HL = "LABEL:VALUE LABEL:VALUE ..." (NUL-terminated), B = line,
-;;       C = column (bytes). Each label up to and including ':' is drawn in
-;;       TEXT_LABEL, each value in white; a space starts a new label.
-;;   Out: text colour back to white. Modifies: AF, BC, DE, HL, IX, IY.
-;; ----------------------------------------------------------------------------
-help_draw_line::
-    ld (help_ptr), hl
-    ld a, b
-    ld (help_y), a
-    ld a, c
-    ld (help_x), a
-    ld a, #TEXT_LABEL
-    ld (help_colour), a
-_hdl_loop:
-    ld hl, (help_ptr)
-    ld a, (hl)
-    or a
-    jr z, _hdl_done
-    ld (help_char), a
-    inc hl
-    ld (help_ptr), hl
-    cp #' '
-    jr nz, _hdl_draw
-    ld a, #TEXT_LABEL             ; next word starts with a label
-    ld (help_colour), a
-    jr _hdl_next
-_hdl_draw:
-    ld a, (help_colour)
-    call fwk_text_set_color
-    ld a, (help_y)
-    ld l, a
-    ld h, #0
-    ld a, (help_x)
-    ld c, a
-    call fwk_video_get_ptr
-    ld iy, #help_char
-    call fwk_text_draw
-    ld a, (help_char)
-    cp #':'
-    jr nz, _hdl_next
-    ld a, #TEXT_WHITE             ; after the colon comes the value
-    ld (help_colour), a
-_hdl_next:
-    ld a, (help_x)
-    add a, #2                     ; one character = 2 bytes
-    ld (help_x), a
-    jr _hdl_loop
-_hdl_done:
-    xor a
-    jp fwk_text_set_color
-
-_game_draw_text_at:
-    ;; In: HL = string ptr, B = scanline Y, C = column
-    push hl
-    ld l, b
-    ld h, #0
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw

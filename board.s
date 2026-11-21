@@ -325,17 +325,17 @@ _bl_clear_marks:
     inc hl
     djnz _bl_clear_marks
 
-    ;; Centre the board: n cells of 8 bytes x 16 lines, whose last gap (1 byte,
-    ;; 2 lines) is empty, between the time (lines 8..16) and the help (190..198).
-    ;; board_x = 41 - 4n, board_y = 101 - 8n.
+    ;; Centre the board: n cells of 16x16 pixels (8 bytes). For n = 9 it sits
+    ;; where the design puts it (x 8, y 30). board_x = 40 - 4n (bytes),
+    ;; board_y = 102 - 8n.
     ld a, (catdoku_n)
     add a, a
     add a, a
     ld b, a                       ; B = 4n
-    ld a, #41
+    ld a, #40
     sub b
     ld (board_x), a
-    ld a, #101
+    ld a, #102
     sub b
     sub b
     ld (board_y), a
