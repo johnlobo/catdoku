@@ -266,6 +266,25 @@ class Emulator(unittest.TestCase):
         self.assertEqual({screen[y][x] for x, y in lit}, {white})
         self.assertEqual({screen[y][x] for x, y in shadow}, {black})
 
+    def test_cell_ticks_are_grey_and_dark_blue_on_olive(self):
+        emu = self.boot()
+        self.open_level(emu, 4)            # 9x9: all nine regions
+        n, bx, by = self.byte(emu, "catdoku_n"), self.byte(emu, "board_x"), self.byte(emu, "board_y")
+        grey, blue, olive = (common_constant(k) for k in ("PEN_GREY", "PEN_DARK_BLUE", "PEN_OLIVE"))
+        screen = self.pens(emu)
+        seen = {}
+        for y in range(by, by + 16 * n):
+            for x in range(2 * bx, 2 * bx + 16 * n):
+                if screen[y][x] in (grey, blue):
+                    left = x - 1               # ticks are 1 or 2 pixels wide: its region is to the left
+                    while screen[y][left] in (grey, blue):
+                        left -= 1
+                    region = screen[y][left]
+                    seen.setdefault(region, set()).add(screen[y][x])
+        self.assertEqual(len(seen), 9, seen)
+        for region, ticks in seen.items():
+            self.assertEqual(ticks, {blue} if region == olive else {grey}, f"region pen {region}")
+
     def test_held_cursor_repeats_after_15_frames_then_every_4(self):
         emu = self.boot()
         self.open_level(emu)
