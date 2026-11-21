@@ -7,7 +7,7 @@ Catdoku es un juego de colocación de gatos en un tablero n×n dividido en regio
 El objetivo: colocar n gatos, uno por región, fila y columna, sin que dos se toquen (ni en diagonal).
 
 ## Controles
-- **Cursores**: mover el selector de casilla (esquinas blancas con sombra negra, visibles sobre cualquier región). Mantenido, repite a los 15 frames y luego cada 4.
+- **Cursores**: mover el selector de casilla (esquinas blancas con sombra negra, visibles sobre cualquier región). Cuatro marcas amarillas fuera del tablero señalan su fila y su columna. Mantenido, repite a los 15 frames y luego cada 4.
 - **RETURN**: poner un gato. Un gato no se puede quitar.
 - **ESPACIO**: poner o quitar una X (casilla descartada).
 - **H**: pista (ver abajo). Un segundo H lleva el selector a la casilla, o pone la X en una pista de "probar y descartar".
