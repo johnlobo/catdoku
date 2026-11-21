@@ -11,8 +11,6 @@
       "tiles": [
         "catdoku_cat_pixels",
         "catdoku_mark_pixels",
-        "catdoku_cell_pixels",
-        "catdoku_cursor_pixels",
         "catdoku_icon_pixels"
       ]
     }
