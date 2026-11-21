@@ -59,7 +59,7 @@ save_descriptor:
     .db 0
 ;; catdoku_game_palette as firmware colour numbers (assets/palette.json), then
 ;; the border (blue).
-save_palette_fw: .db 0, 1, 13, 10, 24, 17, 3, 15, 12, 19, 23, 6, 26, 4, 21, 25, 1
+save_palette_fw: .db 0, 1, 13, 10, 24, 17, 3, 15, 12, 19, 23, 6, 26, 5, 21, 25, 1
 save_disk_buffer: .ds FWK_DISK_BUFFER_SIZE
 
 ;; ---- Code area ----

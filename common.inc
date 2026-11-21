@@ -150,7 +150,7 @@ PEN_SEA_GREEN = 9
 PEN_CYAN = 10
 PEN_RED = 11
 PEN_WHITE = 12
-REGION_FIRST_PEN = 3              ; region r is drawn with pen r + 3 (pens 3..11)
+PEN_VIOLET = 13                   ; region 1 (game.s, fc_region_pens)
 CURSOR_PEN = PEN_WHITE
 
 ;; ---- Audio SFX ids ----
