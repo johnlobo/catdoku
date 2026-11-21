@@ -675,7 +675,8 @@ _gfc_last_joined:
     pop bc
     ret
 
-;; Tick colour of each region (pens 3..11): white on the dark ones, as the design.
+;; Tick colour of each region: grey, except dark blue on the olive region,
+;; where grey would not show.
 ;; Pen of each region: the design's colours, except region 1, violet instead
 ;; of yellow (pen 4 stays yellow for the text and the selected boxes): white
 ;; X, cursor and hint blink did not show on yellow.
@@ -683,8 +684,8 @@ fc_region_pens:
     .db PEN_TEAL, PEN_VIOLET, PEN_PINK, PEN_DARK_RED, PEN_ORANGE
     .db PEN_OLIVE, PEN_SEA_GREEN, PEN_CYAN, PEN_RED
 fc_tick_pens:
-    .db PEN_WHITE, PEN_WHITE, PEN_BLACK, PEN_WHITE, PEN_BLACK
-    .db PEN_BLACK, PEN_BLACK, PEN_BLACK, PEN_BLACK
+    .db PEN_GREY, PEN_GREY, PEN_GREY, PEN_GREY, PEN_GREY
+    .db PEN_DARK_BLUE, PEN_GREY, PEN_GREY, PEN_GREY
 
 _game_redraw_cell:
     ;; In: B=row, C=col. Redraws cell background + overlay
