@@ -251,6 +251,21 @@ class Emulator(unittest.TestCase):
                 self.tap(emu, key)
         self.assertEqual(board(), before, "moving the cursor around changed the board")
 
+    def test_the_cursor_has_a_black_shadow_down_and_right(self):
+        emu = self.boot()
+        self.open_level(emu)
+        self.tap(emu, "right", 40)         # cell (0, 1): the shadow must follow the cursor
+        bx, by = self.byte(emu, "board_x"), self.byte(emu, "board_y")
+        px, py = 2 * (bx + 8) + 1, by + 1  # top-left pixel of the corners
+        white, black = common_constant("PEN_WHITE"), common_constant("PEN_BLACK")
+        screen = self.pens(emu)
+        arms = [(0, 0, 4, 1), (0, 0, 1, 4), (9, 0, 4, 1), (12, 0, 1, 4),
+                (0, 12, 4, 1), (0, 9, 1, 4), (9, 12, 4, 1), (12, 9, 1, 4)]
+        lit = {(px + dx + i, py + dy + j) for dx, dy, w, h in arms for i in range(w) for j in range(h)}
+        shadow = {(x + 1, y + 1) for x, y in lit} - lit
+        self.assertEqual({screen[y][x] for x, y in lit}, {white})
+        self.assertEqual({screen[y][x] for x, y in shadow}, {black})
+
     def test_held_cursor_repeats_after_15_frames_then_every_4(self):
         emu = self.boot()
         self.open_level(emu)
