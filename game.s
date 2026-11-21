@@ -1041,6 +1041,8 @@ _game_move_keys:
 
 ;; Modifies: AF, BC, DE, HL.
 _game_render_cursor:
+    ld a, #CURSOR_MARK_PEN
+    call _game_cursor_marks
     ld a, (cursor_col)
     add a, a
     add a, a
@@ -1102,6 +1104,79 @@ _grc_arm:
 cursor_pen: .db 0
 cursor_off: .db 0
 
+;; ----------------------------------------------------------------------------
+;; _game_cursor_marks
+;;   In: A = pen. Four marks outside the board, three pixels from it (between
+;;   the board and its orange frame there is one black pixel; the third is
+;;   black on every board size): left and right of the cursor row (1 pixel x
+;;   8 lines), above and below its column (8 pixels x 2 lines).
+;;   Modifies: AF, BC, DE, HL.
+;; ----------------------------------------------------------------------------
+_game_cursor_marks:
+    ld (gcm_pen), a
+    ld a, (catdoku_n)
+    add a, a
+    add a, a
+    add a, a
+    add a, a
+    ld (gcm_size), a              ; board side in pixels
+    ;; rows: y = board_y + row*16 + 4
+    ld a, (cursor_row)
+    add a, a
+    add a, a
+    add a, a
+    add a, a
+    ld hl, #board_y
+    add a, (hl)
+    add a, #4
+    ld c, a
+    ld a, (board_x)
+    add a, a
+    sub #3
+    ld b, a                       ; left: x = board pixel x - 3
+    push bc
+    ld de, #0x0108
+    ld a, (gcm_pen)
+    call ui_rect
+    pop bc
+    ld a, (gcm_size)
+    add a, #5
+    add a, b
+    ld b, a                       ; right: x = board pixel x + size + 2
+    ld de, #0x0108
+    ld a, (gcm_pen)
+    call ui_rect
+    ;; columns: x = board pixel x + col*16 + 4
+    ld a, (cursor_col)
+    add a, a
+    add a, a
+    add a, a
+    add a, a
+    ld b, a
+    ld a, (board_x)
+    add a, a
+    add a, b
+    add a, #4
+    ld b, a
+    ld a, (board_y)
+    sub #4
+    ld c, a                       ; top: lines board_y - 4 and - 3
+    push bc
+    ld de, #0x0802
+    ld a, (gcm_pen)
+    call ui_rect
+    pop bc
+    ld a, (gcm_size)
+    add a, #6
+    add a, c
+    ld c, a                       ; bottom: lines board_y + size + 2 and + 3
+    ld de, #0x0802
+    ld a, (gcm_pen)
+    jp ui_rect
+
+gcm_pen: .db 0
+gcm_size: .db 0
+
 ;; dx, dy, width, height of the 8 arms, from (X+1, Y+1)
 cursor_arms:
     .db 0, 0, 4, 1,   0, 0, 1, 4      ; top left
@@ -1110,8 +1185,11 @@ cursor_arms:
     .db 9, 12, 4, 1,  12, 9, 1, 4     ; bottom right
     .db 0xFF
 
-;; The corners sit inside the cell: redrawing it erases them.
+;; The corners sit inside the cell: redrawing it erases them. The marks
+;; outside the board go back to black.
 _game_erase_cursor:
+    ld a, #PEN_BLACK
+    call _game_cursor_marks
     ld a, (cursor_row)
     ld b, a
     ld a, (cursor_col)

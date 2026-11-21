@@ -285,6 +285,28 @@ class Emulator(unittest.TestCase):
         for region, ticks in seen.items():
             self.assertEqual(ticks, {grey}, f"region pen {region}")
 
+    def test_yellow_marks_show_the_cursor_row_and_column(self):
+        yellow, black = common_constant("PEN_YELLOW"), common_constant("PEN_BLACK")
+        for difficulty in (0, 4):          # 5x5 and 9x9, the tightest margin
+            emu = self.boot()
+            self.open_level(emu, difficulty)
+            n, bx, by = self.byte(emu, "catdoku_n"), self.byte(emu, "board_x"), self.byte(emu, "board_y")
+            x0, size = 2 * bx, 16 * n
+            for key in ("right", "right", "down"):
+                self.tap(emu, key, 20)
+            r, c = self.byte(emu, "cursor_row"), self.byte(emu, "cursor_col")
+            screen = self.pens(emu)
+            for row in range(n):
+                want = yellow if row == r else black
+                for x in (x0 - 3, x0 + size + 2):
+                    pens = {screen[by + 16 * row + 4 + j][x] for j in range(8)}
+                    self.assertEqual(pens, {want}, f"n={n} row {row} x={x}")
+            for col in range(n):
+                want = yellow if col == c else black
+                for y in (by - 4, by - 3, by + size + 2, by + size + 3):
+                    pens = {screen[y][x0 + 16 * col + 4 + i] for i in range(8)}
+                    self.assertEqual(pens, {want}, f"n={n} col {col} y={y}")
+
     def test_held_cursor_repeats_after_15_frames_then_every_4(self):
         emu = self.boot()
         self.open_level(emu)
