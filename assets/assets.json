@@ -10,8 +10,7 @@
       "symbol": "catdoku_sprites",
       "tiles": [
         "catdoku_cat_pixels",
-        "catdoku_mark_pixels",
-        "catdoku_icon_pixels"
+        "catdoku_mark_pixels"
       ]
     }
   ]

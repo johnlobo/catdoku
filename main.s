@@ -9,11 +9,9 @@
 .area _DATA
 game_status:: .db 0              ; 0x5A once running, else error code
 catdoku_game_palette::
-    ;; pen 1 = firmware 8 (bright magenta, HW 0x0D) as in assets/palette.json;
-    ;; it was 0x0A, the same bright yellow as pen 6, so regions 0 and 5 matched.
-    .db 0x14, 0x0D, 0x00, 0x1C, 0x0C, 0x0E, 0x0A, 0x07, 0x16, 0x1E, 0x13, 0x1F, 0x15, 0x18, 0x04, 0x0B
-_game_palette:
-    .db 0x14, 0x0D, 0x00, 0x1C, 0x0C, 0x0E, 0x0A, 0x07, 0x16, 0x1E, 0x13, 0x1F, 0x15, 0x18, 0x04, 0x0B
+    ;; The 13 colours of the design (assets/palette.json, PEN_* in common.inc),
+    ;; pens 13..15 unused.
+    .db 0x14, 0x04, 0x00, 0x06, 0x0A, 0x0F, 0x1C, 0x0E, 0x1E, 0x02, 0x1B, 0x0C, 0x0B, 0x18, 0x1A, 0x03
 
 .area _CODE
 
@@ -33,9 +31,6 @@ _main::
     ;; Initialize project (disables firmware and installs IRQ handler)
     call fwk_project_init
     call fwk_video_init
-    call fwk_text_init
-    ld a, #0
-    call fwk_text_set_color
 
     ;; Install fixed palette
     ld hl, #catdoku_game_palette
@@ -123,32 +118,27 @@ main_victory:
     jr z, _mv_wait
     xor a
     ld (game_dirty), a
-    call fwk_video_clear_visible
-    ld hl, #str_game_victory      ; "LEVEL COMPLETE!" centred
-    ld b, #70
-    ld c, #25
-    call _main_draw_text_at
-    ld hl, #str_game_time         ; "TIME:" then the seconds
-    ld b, #100
-    ld c, #30
-    call _main_draw_text_at
+    ld a, #UI_BG_PLAIN
+    call ui_show_background
+    ld iy, #str_game_victory      ; "LEVEL COMPLETE!" in a title box
+    ld c, #70
+    call menu_title_box
+    ld iy, #str_game_time         ; "TIME:" yellow, the seconds white
+    ld b, #MV_TIME_X
+    ld c, #105
+    ld a, #PEN_YELLOW
+    call ui_text
     ld hl, (game_timer_seconds)
-    ld b, #100
-    ld c, #42
+    ld c, #105
+    ld a, #PEN_WHITE
     call game_draw_number_at
-    ld hl, #str_press_key
-    ld b, #150
-    ld c, #27
-    call _main_draw_text_at
+    ld iy, #str_press_key
+    call ui_help_centred
 _mv_wait:
     ld a, (fwk_input_pressed)
     or a
     jp z, main_loop
-    ld a, #STATE_LEVEL_SELECT
-    ld (game_state), a
-    ld a, #1
-    ld (menu_dirty), a
-    jp main_loop
+    jp _main_to_level_select
 
 main_timeup:
     ld a, (game_dirty)
@@ -156,81 +146,70 @@ main_timeup:
     jr z, _mt_wait
     xor a
     ld (game_dirty), a
-    call fwk_video_clear_visible
-    ld hl, #str_timeup            ; "TIME UP" centred
-    ld b, #80
-    ld c, #33
-    call _main_draw_text_at
-    ld hl, #str_press_key
-    ld b, #150
-    ld c, #27
-    call _main_draw_text_at
+    ld a, #UI_BG_PLAIN
+    call ui_show_background
+    ld iy, #str_timeup            ; "TIME UP" in a title box
+    ld c, #80
+    call menu_title_box
+    ld iy, #str_press_key
+    call ui_help_centred
 _mt_wait:
     ld a, (fwk_input_pressed)
     or a
     jp z, main_loop
-    ld a, #STATE_LEVEL_SELECT
-    ld (game_state), a
-    ld a, #1
-    ld (menu_dirty), a
-    jp main_loop
+    jp _main_to_level_select
 
 main_lost:
-    ;; Framework window over the board, drawn once, then back to level select
+    ;; A box over the board, drawn once, then back to level select
     ld a, (game_dirty)
     or a
     jr z, _ml_wait
     xor a
     ld (game_dirty), a
-    ld ix, #lost_window
-    call fwk_window_draw
-    ld hl, #str_lost_1            ; 12 chars: column 40 - 12
-    ld b, #86
-    ld c, #28
-    call _main_draw_text_at
-    ld hl, #str_lost_2            ; 9 chars
-    ld b, #98
-    ld c, #31
-    call _main_draw_text_at
-    ld hl, #str_press_key         ; 13 chars
-    ld b, #110
-    ld c, #27
-    call _main_draw_text_at
+    ld b, #ML_BOX_X
+    ld c, #ML_BOX_Y
+    ld d, #ML_BOX_W
+    ld e, #ML_BOX_H
+    ld h, #PEN_ORANGE
+    ld l, #PEN_DARK_RED
+    call ui_box
+    ld iy, #str_lost_1
+    ld b, #ML_BOX_X
+    ld d, #ML_BOX_W
+    ld c, #ML_BOX_Y + 6
+    ld a, #PEN_YELLOW
+    call ui_text_in
+    ld iy, #str_lost_2
+    ld b, #ML_BOX_X
+    ld d, #ML_BOX_W
+    ld c, #ML_BOX_Y + 16
+    ld a, #PEN_WHITE
+    call ui_text_in
+    ld iy, #str_press_key
+    ld b, #ML_BOX_X
+    ld d, #ML_BOX_W
+    ld c, #ML_BOX_Y + 26
+    ld a, #PEN_WHITE
+    call ui_text_in
 _ml_wait:
     ld a, (fwk_input_pressed)
     or a
     jp z, main_loop
+_main_to_level_select:
     ld a, #STATE_LEVEL_SELECT
     ld (game_state), a
     ld a, #1
     ld (menu_dirty), a
     jp main_loop
 
-;; fwk_window descriptor (x, y.w, width, height, border, fill): bytes 20..59,
-;; lines 80..119, over the board. Red border (pen 4), dark blue fill (pen 14).
-lost_window: .db 20
-    .dw 80
-    .db 40, 40, 0x30, 0x3F
+MV_TIME_X = 62                    ; "TIME:999": 32 pixels, (160 - 32) / 2 - 2
+ML_BOX_X = 36                     ; game over box over the board
+ML_BOX_Y = 80
+ML_BOX_W = 88
+ML_BOX_H = 39
 str_lost_1: .asciz "NO CAT THERE"
 str_lost_2: .asciz "GAME OVER"
 str_press_key: .asciz "PRESS ANY KEY"
-
-_main_draw_text:
-    push hl
-    ld l, b
-    ld h, #0
-    ld c, #4
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw
-
-_main_draw_text_at:
-    push hl
-    ld l, b
-    ld h, #0
-    call fwk_video_get_ptr
-    pop iy
-    jp fwk_text_draw
 
 ;; ---- Keyboard bindings table ----
 catdoku_bindings:

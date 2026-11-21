@@ -27,7 +27,18 @@ NEW GAME, CONTINUE, RULES (pantalla de reglas) y AUTO MARK.
 - **CONTINUE**: abre la selección en el primer nivel no completado. Sale en gris y el cursor la salta mientras no haya ningún nivel completado.
 
 ## Tablero
-Las casillas vecinas de una misma región se dibujan unidas: cada región es una sola forma y las líneas negras marcan sus fronteras.
+Cada casilla mide 16x16 píxeles: 15x15 del color de su región y 1 de separación. Entre casillas de la misma región la separación toma el color de la región con una raya de 2 píxeles en el centro (blanca en las regiones oscuras, negra en las claras); entre regiones distintas es negra. El cursor son cuatro esquinas blancas dentro de la casilla. Un marco naranja rodea el tablero.
+
+## Gráficos
+Las pantallas siguen `docs/maqueta.png` (menú, selección de nivel y partida), que está dibujada a doble tamaño sobre la rejilla del CPC: cada pantalla son 156x196 píxeles de modo 0 y 13 colores del CPC. La única diferencia buscada es ":" donde la maqueta escribe "=". Reglas, confirmación de NEW GAME, nivel completado, tiempo agotado, partida perdida y guardado usan el mismo marco, las mismas cajas y la misma franja de ayuda.
+
+- `assets/src/ui_menu.png`, `ui_levels.png`, `ui_game.png`, `ui_plain.png`: fondos de 160x200 sacados de la maqueta, sin lo que dibuja el código (cajas de opciones, dificultad, BEST, textos con ":", tablero). Se guardan como volcados de pantalla comprimidos con ZX7B (1,3 KB los cuatro) y se descomprimen directamente en la memoria de vídeo.
+- `assets/src/font.png`: la fuente de la maqueta, 3x6 píxeles por carácter (ASCII 32..95). V, ":", "!" y "?" no salen en la maqueta y están dibujados en el mismo estilo.
+- `assets/src/sprites.png`: gato y X de 16x16.
+- `assets/palette.json`: la paleta, copiada también en `main.s` (colores hardware) y en `save.s` (colores firmware mientras AMSDOS escribe); una prueba comprueba que coinciden.
+- `ui.s`: fondos, rectángulos y cajas con precisión de píxel, texto con la fuente 3x6 y la franja de ayuda.
+
+`generated/catdoku_ui.s` se genera con `scripts/gen_ui.py` (`--check` falla si cambiaría).
 
 ## AUTO MARK
 Opción del menú principal (RETURN la activa o desactiva; se guarda en `CATDOKU.SAV`). Al poner un gato correcto, marca con X las casillas vacías de su fila, su columna, su región y sus 8 vecinas.
@@ -38,9 +49,11 @@ Opción del menú principal (RETURN la activa o desactiva; se guarda en `CATDOKU
 - `game.s` - Bucle de juego, temporizador, render
 - `board.s` - Lógica del tablero
 - `save.s` - Guardado/carga de progreso
+- `ui.s` - Fondos, cajas y texto con la fuente de la maqueta
 - `common.inc` - Constantes y definiciones compartidas
-- `assets/` - Sprites (PNG) y paleta
-- `generated/` - Niveles comprimidos, música y efectos
+- `assets/` - Sprites, fondos, fuente (PNG) y paleta
+- `generated/` - Niveles y fondos comprimidos, fuente, música y efectos
+- `docs/maqueta.png` - Diseño de referencia de las pantallas
 
 ## Compilación
 ```sh
@@ -50,7 +63,7 @@ glasnost test      # integridad del proyecto y compilación
 ```
 
 ## Pruebas
-`tests/test_catdoku.py` contiene comprobaciones en el host (tabla de niveles, constantes) y partidas automáticas en BluePixel headless: AUTO MARK, guardado tras reiniciar, reglas, repetición de cursor, centrado de los cinco tamaños y del tiempo, NEW GAME/CONTINUE y la migración de un `CATDOKU.SAV` de versión 1.
+`tests/test_catdoku.py` contiene comprobaciones en el host (tabla de niveles, constantes, las tres copias de la paleta, `generated/catdoku_ui.s` al día) y partidas automáticas en BluePixel headless: menú y selección de nivel iguales píxel a píxel a la maqueta (salvo los ":"), la huella que sigue a la selección, niveles completados en verde solo en su dificultad, AUTO MARK, guardado tras reiniciar, reglas, repetición de cursor, centrado de los cinco tamaños y del tiempo, NEW GAME/CONTINUE y la migración de un `CATDOKU.SAV` de versión 1.
 
 ```sh
 python3 -m unittest discover -s tests -v
