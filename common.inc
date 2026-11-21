@@ -152,6 +152,7 @@ PEN_RED = 11
 PEN_WHITE = 12
 PEN_VIOLET = 13                   ; region 1 (game.s, fc_region_pens)
 CURSOR_PEN = PEN_WHITE
+CURSOR_SHADOW_PEN = PEN_BLACK         ; cursor shadow, one pixel right and down
 
 ;; ---- Audio SFX ids ----
 SFX_CAT = 0

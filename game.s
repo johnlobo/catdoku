@@ -1059,6 +1059,17 @@ _game_render_cursor:
     add a, (hl)
     add a, #1
     ld (cursor_py), a
+    ;; shadow one pixel right and down first, then the arms on top
+    ld a, #CURSOR_SHADOW_PEN
+    ld (cursor_pen), a
+    ld a, #1
+    ld (cursor_off), a
+    call _grc_pass
+    ld a, #CURSOR_PEN
+    ld (cursor_pen), a
+    xor a
+    ld (cursor_off), a
+_grc_pass:
     ld hl, #cursor_arms
 _grc_arm:
     ld a, (hl)
@@ -1067,9 +1078,15 @@ _grc_arm:
     ld a, (cursor_px)
     add a, (hl)
     ld b, a
+    ld a, (cursor_off)
+    add a, b
+    ld b, a
     inc hl
     ld a, (cursor_py)
     add a, (hl)
+    ld c, a
+    ld a, (cursor_off)
+    add a, c
     ld c, a
     inc hl
     ld d, (hl)
@@ -1077,10 +1094,13 @@ _grc_arm:
     ld e, (hl)
     inc hl
     push hl
-    ld a, #CURSOR_PEN
+    ld a, (cursor_pen)
     call ui_rect
     pop hl
     jr _grc_arm
+
+cursor_pen: .db 0
+cursor_off: .db 0
 
 ;; dx, dy, width, height of the 8 arms, from (X+1, Y+1)
 cursor_arms:
