@@ -94,7 +94,7 @@ _mu_down:
 _mu_enter:
     ld a, (fwk_input_pressed)
     bit 4, a            ; ENTER
-    jr z, _mu_check_dirty
+    jp z, _mu_check_dirty
     ld a, (menu_selection)
     or a
     jr z, _mu_new
@@ -118,11 +118,13 @@ _mu_rules:
     ld (menu_dirty), a
     ret
 _mu_continue:
-    ;; CONTINUE: open level select on the first level not completed.
-    ;; Disabled (grey) while no level is completed.
-    ld a, (catdoku_save_count)
-    or a
+    ;; CONTINUE: the unfinished game when there is one, else level select on
+    ;; the first level not completed. Disabled (grey) without progress.
+    call _menu_has_progress
     ret z
+    call save_get_resume
+    cp #0xFF
+    jp nz, _mu_resume
     ld c, #0
 _mu_cont_loop:
     ld a, c
@@ -152,8 +154,7 @@ _mu_div_done:
     jr _mu_to_level_select
 _mu_new:
     ;; NEW GAME with progress on the disc: confirm erasing it first
-    ld a, (catdoku_save_count)
-    or a
+    call _menu_has_progress
     jr z, _mu_new_start
     ld a, #STATE_CONFIRM_NEW
     ld (game_state), a
@@ -180,8 +181,7 @@ _mu_check_dirty:
     ld a, #UI_BG_MENU
     call ui_show_background
     ;; CONTINUE is grey, and never selected, while nothing is completed
-    ld a, (catdoku_save_count)
-    or a
+    call _menu_has_progress
     jr nz, _mu_items
     ld a, (menu_selection)
     cp #1
@@ -301,12 +301,22 @@ _ls_not_down:
 _ls_start:
     ld a, (level_select_item)
     call _ls_level_id
+    ; fall through
+
+;; ----------------------------------------------------------------------------
+;; menu_start_level
+;;   In: A = level id. Loads it and switches to the game, time 0.
+;;   Modifies: everything.
+;; ----------------------------------------------------------------------------
+menu_start_level::
     ld (current_level_id), a
     xor a
     ld (game_timer_start), a
     ld (game_timer_start + 1), a
     ld (game_timer_seconds), a
     ld (game_timer_seconds + 1), a
+    ld (game_timer_base), a
+    ld (game_timer_base + 1), a
     ld (game_won), a
     ld (cursor_row), a
     ld (cursor_col), a
@@ -316,6 +326,51 @@ _ls_start:
     ld (game_state), a
     ld a, #1
     ld (game_dirty), a
+    ret
+
+;; CONTINUE with an unfinished game: its level, its cats and X (cats through
+;; board_set_cell, so the found cats are counted) and its time.
+_mu_resume:
+    call menu_start_level
+    ld hl, (catdoku_save_buffer + SAVE_RESUME_OFFSET + 1)
+    ld (game_timer_base), hl
+    ld (game_timer_seconds), hl
+    ld hl, #catdoku_save_buffer + SAVE_RESUME_OFFSET + 3
+    ld b, #0
+_mr_row:
+    ld c, #0
+_mr_col:
+    ld a, (hl)
+    inc hl
+    cp #CELL_CAT
+    jr z, _mr_set
+    cp #CELL_MARK
+    jr nz, _mr_next
+_mr_set:
+    ld d, a
+    push hl
+    push bc
+    call board_set_cell
+    pop bc
+    pop hl
+_mr_next:
+    inc c
+    ld a, (catdoku_n)
+    cp c
+    jr nz, _mr_col
+    inc b
+    cp b
+    jr nz, _mr_row
+    ret
+
+;; Out: A != 0 and NZ when there is progress: a completed level or an
+;; unfinished game. Modifies: AF.
+_menu_has_progress:
+    ld a, (catdoku_save_count)
+    or a
+    ret nz
+    call save_get_resume
+    inc a                         ; 0xFF (none) -> 0
     ret
 
 ;; In: A = item 0..39. Out: A = level id = difficulty*40 + item. Modifies B, C.
@@ -557,8 +612,7 @@ _ls_no_best:
 _menu_skip_continue_up:
     cp #1
     ret nz
-    ld a, (catdoku_save_count)
-    or a
+    call _menu_has_progress
     ld a, #1
     ret nz
     xor a
@@ -566,8 +620,7 @@ _menu_skip_continue_up:
 _menu_skip_continue_down:
     cp #1
     ret nz
-    ld a, (catdoku_save_count)
-    or a
+    call _menu_has_progress
     ld a, #1
     ret nz
     ld a, #2
@@ -745,8 +798,7 @@ _mdi_normal:
     ld a, (mdi_item)
     cp #1
     jr nz, _mdi_box_normal
-    ld a, (catdoku_save_count)
-    or a
+    call _menu_has_progress
     jr nz, _mdi_box_normal
     ld a, #PEN_GREY
     ld (mdi_pen), a

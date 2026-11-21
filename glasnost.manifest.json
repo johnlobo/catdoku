@@ -24,6 +24,7 @@
     "board.s",
     "save.s",
     "ui.s",
+    "hint.s",
     "common.inc",
     "generated/project.inc",
     "generated/catdoku_levels.s",

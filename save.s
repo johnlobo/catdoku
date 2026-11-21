@@ -6,23 +6,28 @@
 .globl catdoku_save_buffer, catdoku_save_count, catdoku_save_loaded
 .globl save_load, save_is_completed, save_write, save_get_time
 .globl save_get_auto_mark, save_toggle_auto_mark, save_write_settings, save_reset_progress
+.globl save_get_resume, save_store_resume, save_forget_resume, save_drop_resume
 .include "common.inc"
 
 ;; ---- Data area ----
 .area _DATA
 
-;; "CATDOKU" + version, then one 5-byte entry per completed level:
-;; level id, time low, time high, 0, 0. 0xFF ends the list.
-;; Bit 7 of the version byte (offset 7) is the AUTO MARK option.
+;; "CATDOKU" + version, then the unfinished game (level id, 0xFF for none;
+;; seconds, low and high; the 81 cells of catdoku_marks), then one 5-byte
+;; entry per completed level: level id, time low, time high, 0, 0. 0xFF ends
+;; the list. Bit 7 of the version byte (offset 7) is the AUTO MARK option.
 SAVE_HEADER_SIZE = 8
+SAVE_RESUME_SIZE = 84
+SAVE_ENTRIES_OFFSET = 92          ; SAVE_RESUME_OFFSET (common.inc) + SAVE_RESUME_SIZE
 SAVE_ENTRY_SIZE = 5
 SAVE_FLAGS_OFFSET = 7
 SAVE_FLAG_AUTO_MARK = 0x80
-;; Version 2: the levels of the difficulty curve (Medio without trial and
-;; error, each difficulty ordered). A version-1 file refers to other boards,
-;; so loading one forgets its progress and keeps AUTO MARK.
-SAVE_VERSION = 2
-SAVE_BUFFER_SIZE = SAVE_HEADER_SIZE + CATDOKU_NUM_LEVELS * SAVE_ENTRY_SIZE
+;; Version 3 adds the unfinished game. Version 2 has the same levels: its
+;; entries move after the new block. A version-1 file refers to other
+;; boards, so loading one forgets its progress and keeps AUTO MARK.
+SAVE_VERSION = 3
+SAVE_ENTRIES_SIZE = 1000          ; CATDOKU_NUM_LEVELS * SAVE_ENTRY_SIZE
+SAVE_BUFFER_SIZE = 1092           ; SAVE_ENTRIES_OFFSET + SAVE_ENTRIES_SIZE
 
 catdoku_save_buffer:: .ds SAVE_BUFFER_SIZE
 catdoku_save_count:: .db 0        ; number of completed levels in buffer
@@ -88,6 +93,8 @@ save_load::
     and #0x7F
     cp #SAVE_VERSION
     jr z, _sl_current
+    cp #2
+    jr z, _sl_from_2
     ;; Another version: its levels are other boards. Keep only AUTO MARK.
     ld a, (catdoku_save_buffer + SAVE_FLAGS_OFFSET)
     and #SAVE_FLAG_AUTO_MARK
@@ -95,7 +102,7 @@ save_load::
     jr _sl_reset
 _sl_current:
     ;; Count entries up to the 0xFF marker
-    ld hl, #catdoku_save_buffer + SAVE_HEADER_SIZE
+    ld hl, #catdoku_save_buffer + SAVE_ENTRIES_OFFSET
     ld de, #SAVE_ENTRY_SIZE
     ld c, #0
 _sl_count:
@@ -111,6 +118,21 @@ _sl_count:
 _sl_counted:
     ld a, c
     jr _sl_done
+
+_sl_from_2:
+    ;; Version 2: entries from offset 8 move to SAVE_ENTRIES_OFFSET (copied
+    ;; backwards, the areas overlap), no unfinished game, version 3.
+    ld hl, #catdoku_save_buffer + SAVE_HEADER_SIZE + SAVE_ENTRIES_SIZE - 1
+    ld de, #catdoku_save_buffer + SAVE_BUFFER_SIZE - 1
+    ld bc, #SAVE_ENTRIES_SIZE
+    lddr
+    ld a, #0xFF
+    ld (catdoku_save_buffer + SAVE_RESUME_OFFSET), a
+    ld a, (catdoku_save_buffer + SAVE_FLAGS_OFFSET)
+    and #SAVE_FLAG_AUTO_MARK
+    or #SAVE_VERSION
+    ld (catdoku_save_buffer + SAVE_FLAGS_OFFSET), a
+    jr _sl_current
 
 _sl_empty:
     xor a
@@ -147,7 +169,7 @@ _save_magic: .ascii "CATDOKU"
 ;; ----------------------------------------------------------------------------
 _save_find:
     ld b, a
-    ld hl, #catdoku_save_buffer + SAVE_HEADER_SIZE
+    ld hl, #catdoku_save_buffer + SAVE_ENTRIES_OFFSET
     ld a, (catdoku_save_count)
     ld c, a
 _sf_loop:
@@ -266,9 +288,9 @@ save_toggle_auto_mark::
 
 ;; ----------------------------------------------------------------------------
 ;; save_reset_progress
-;;   NEW GAME: forgets every completed level and best time (entries back to
-;;   0xFF, count 0) and writes CATDOKU.SAV. The header and the AUTO MARK
-;;   option are kept. Modifies: AF, BC, DE, HL, IX, IY.
+;;   NEW GAME: forgets the unfinished game, every completed level and best
+;;   time (all back to 0xFF, count 0) and writes CATDOKU.SAV. The header and
+;;   the AUTO MARK option are kept. Modifies: AF, BC, DE, HL, IX, IY.
 ;; ----------------------------------------------------------------------------
 save_reset_progress::
     ld hl, #catdoku_save_buffer + SAVE_HEADER_SIZE
@@ -284,6 +306,49 @@ save_write_settings::
     call _save_message_show
     call _save_write_disk
     jp _save_message_hide
+
+;; ----------------------------------------------------------------------------
+;; save_get_resume
+;;   Out: A = level id of the unfinished game, 0xFF when there is none.
+;;   Modifies: AF.
+;; save_store_resume
+;;   Keeps the game in progress (current_level_id, game_timer_seconds and
+;;   catdoku_marks) as the unfinished game and writes CATDOKU.SAV.
+;;   Modifies: AF, BC, DE, HL, IX, IY.
+;; save_forget_resume
+;;   In: A = level id. When it is the unfinished game, forgets it and writes
+;;   CATDOKU.SAV; otherwise does nothing. Modifies: AF, BC, DE, HL, IX, IY.
+;; save_drop_resume
+;;   The same without writing (save_write follows). Modifies: AF, HL.
+;; ----------------------------------------------------------------------------
+save_get_resume::
+    ld a, (catdoku_save_buffer + SAVE_RESUME_OFFSET)
+    ret
+
+save_store_resume::
+    ld a, (current_level_id)
+    ld (catdoku_save_buffer + SAVE_RESUME_OFFSET), a
+    ld hl, (game_timer_seconds)
+    ld (catdoku_save_buffer + SAVE_RESUME_OFFSET + 1), hl
+    ld hl, #catdoku_marks
+    ld de, #catdoku_save_buffer + SAVE_RESUME_OFFSET + 3
+    ld bc, #CATDOKU_MAX_CELLS
+    ldir
+    jp save_write_settings
+
+save_forget_resume::
+    ld hl, #catdoku_save_buffer + SAVE_RESUME_OFFSET
+    cp (hl)
+    ret nz
+    ld (hl), #0xFF
+    jp save_write_settings
+
+save_drop_resume::
+    ld hl, #catdoku_save_buffer + SAVE_RESUME_OFFSET
+    cp (hl)
+    ret nz
+    ld (hl), #0xFF
+    ret
 
 ;; ----------------------------------------------------------------------------
 ;; _save_write_disk
