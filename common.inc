@@ -6,7 +6,7 @@
 .include "resources/disk.inc"
 .globl fwk_project_init, fwk_system_wait_frame, fwk_system_frame_count
 .globl catdoku_palette, catdoku_cat_pixels, catdoku_mark_pixels
-.globl ui_show_background, ui_rect, ui_box, ui_pattern, ui_text, ui_text_in, ui_help, ui_help_centred, ui_pen_byte
+.globl ui_show_background, ui_rect, ui_box, ui_pattern, ui_pattern_big, ui_text, ui_text_big, ui_text_in, ui_text_in_big, ui_help, ui_help_centred, ui_pen_byte
 .globl ui_bg_table, ui_font
 .globl catdoku_sprites
 .globl fwk_video_init, fwk_video_clear_visible, fwk_video_get_ptr, fwk_video_plot_byte
@@ -151,6 +151,7 @@ PEN_CYAN = 10
 PEN_RED = 11
 PEN_WHITE = 12
 PEN_VIOLET = 13                   ; region 1 (game.s, fc_region_pens)
+MENU_TITLE_BOX_H = 21             ; title box: 5 lines, 12 of double-height text, 4
 CURSOR_PEN = PEN_WHITE
 CURSOR_MARK_PEN = PEN_YELLOW            ; row and column marks outside the board
 CURSOR_SHADOW_PEN = PEN_BLACK         ; cursor shadow, one pixel right and down

@@ -51,7 +51,7 @@ Las pantallas siguen `docs/maqueta.png` (menú, selección de nivel y partida), 
 - `assets/src/font.png`: la fuente de la maqueta, 3x6 píxeles por carácter (ASCII 32..95). V, ":", "!" y "?" no salen en la maqueta y están dibujados en el mismo estilo.
 - `assets/src/sprites.png`: gato y X de 16x16.
 - `assets/palette.json`: la paleta, copiada también en `main.s` (colores hardware) y en `save.s` (colores firmware mientras AMSDOS escribe); una prueba comprueba que coinciden.
-- `ui.s`: fondos, rectángulos y cajas con precisión de píxel, texto con la fuente 3x6 y la franja de ayuda.
+- `ui.s`: fondos, rectángulos y cajas con precisión de píxel, texto con la fuente 3x6 (y a doble altura, 3x12, con `ui_text_big` / `ui_text_in_big`: cada fila dos veces) y la franja de ayuda. Los títulos en caja (RULES, LEVEL COMPLETE!, TIME UP, ERASE ALL PROGRESS?) van a doble altura.
 
 `generated/catdoku_ui.s` se genera con `scripts/gen_ui.py` (`--check` falla si cambiaría).
 

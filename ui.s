@@ -16,6 +16,10 @@ ui_tx: .db 0                      ; text cursor
 ui_ty: .db 0
 ui_row: .db 0
 ui_bits: .db 0
+ui_repeat: .db 0                  ; lines per glyph row (1, or 2: double height)
+ui_trepeat: .db 0                 ; the same for the text routines
+ui_left: .db 0
+ui_rowbits: .db 0
 ui_glyph: .dw 0
 ui_tpen: .db 0
 ui_mask: .db 0
@@ -223,12 +227,25 @@ _ui_plot:
     jr _ui_merge
 
 ;; ----------------------------------------------------------------------------
-;; ui_pattern
+;; ui_pattern / ui_pattern_big
 ;;   In: HL = rows (bit 7 = left pixel), B = x, C = y, D = width (1..8),
-;;       E = rows, A = pen. Draws the lit pixels only.
+;;       E = rows, A = pen. Draws the lit pixels only. ui_pattern_big draws
+;;       every row twice (double height: E rows take 2*E lines).
 ;;   Modifies: AF, BC, DE, HL.
 ;; ----------------------------------------------------------------------------
 ui_pattern::
+    push af
+    ld a, #1
+    ld (ui_repeat), a
+    pop af
+    jr _ui_pattern
+ui_pattern_big::
+    push af
+    ld a, #2
+    ld (ui_repeat), a
+    pop af
+;; Same, with ui_repeat (1 or 2) already set: the text routines come in here.
+_ui_pattern:
     ld (ui_glyph), hl
     push de
     call ui_pen_byte
@@ -245,6 +262,11 @@ _up_row:
     ld a, (hl)
     inc hl
     ld (ui_glyph), hl
+    ld (ui_rowbits), a
+    ld a, (ui_repeat)
+    ld (ui_left), a               ; lines left for this row
+_up_line:
+    ld a, (ui_rowbits)
     ld (ui_bits), a
     ld a, (ui_ty)
     ld l, a
@@ -252,7 +274,7 @@ _up_row:
     ld a, (ui_tx)
     srl a
     ld c, a
-    call fwk_video_get_ptr        ; one address per row
+    call fwk_video_get_ptr        ; one address per line
     ld a, (ui_pbyte)
     ld e, a
     ld a, (ui_tx)
@@ -283,19 +305,34 @@ _up_skip:
 _up_next:
     ld hl, #ui_ty
     inc (hl)
+    ld hl, #ui_left
+    dec (hl)
+    jr nz, _up_line
     ld hl, #ui_row
     dec (hl)
     jr nz, _up_row
     ret
 
 ;; ----------------------------------------------------------------------------
-;; ui_text
+;; ui_text / ui_text_big
 ;;   In: IY = NUL-terminated string (ASCII 32..95), B = x, C = y (top of the
-;;       6 rows), A = pen. Each character is 3 pixels and a 1-pixel gap; only
-;;   the lit pixels are drawn (the background stays).
+;;   glyphs), A = pen. Each character is 3x6 pixels plus a 1-pixel gap;
+;;   ui_text_big draws it 3x12 (each row twice, same font).
 ;;   Out: B = x after the last character. Modifies: AF, BC, DE, HL, IY.
 ;; ----------------------------------------------------------------------------
 ui_text::
+    push af
+    ld a, #1
+    ld (ui_trepeat), a
+    pop af
+    jr _ui_text
+ui_text_big::
+    push af
+    ld a, #2
+    ld (ui_trepeat), a
+    pop af
+;; Same, with ui_trepeat already set (ui_text_in / ui_text_in_big).
+_ui_text:
     ld (ui_tpen), a
     ld a, b
     ld (ui_x), a                  ; ui_x: x of the next character
@@ -319,13 +356,15 @@ _ut_char:
     add hl, de                    ; x6
     ld de, #ui_font
     add hl, de
+    ld a, (ui_trepeat)
+    ld (ui_repeat), a
     ld a, (ui_x)
     ld b, a
     ld a, (ui_y)
     ld c, a
     ld de, #0x0306                ; 3 columns, 6 rows
     ld a, (ui_tpen)
-    call ui_pattern
+    call _ui_pattern
 _ut_next:
     ld hl, #ui_x
     ld a, (hl)
@@ -338,12 +377,23 @@ _ut_done:
     ret
 
 ;; ----------------------------------------------------------------------------
-;; ui_text_in
+;; ui_text_in / ui_text_in_big
 ;;   In: IY = string, B = box x, D = box width, C = y, A = pen.
-;;   Draws the string centred in the box: x = B + (D - text width) / 2, with
-;;   text width = 4 * length - 1. Modifies: AF, BC, DE, HL, IY.
+;;   Draws the text centred in [B, B + D) (normal or double height: the width
+;;   is the same). Modifies: AF, BC, DE, HL, IY.
 ;; ----------------------------------------------------------------------------
 ui_text_in::
+    push af
+    ld a, #1
+    ld (ui_trepeat), a
+    pop af
+    jr _ui_text_in
+ui_text_in_big::
+    push af
+    ld a, #2
+    ld (ui_trepeat), a
+    pop af
+_ui_text_in:
     ld (ui_tpen), a
     push iy
     pop hl
@@ -367,7 +417,7 @@ _uti_len_done:
     add a, b
     ld b, a
     ld a, (ui_tpen)
-    jp ui_text
+    jr _ui_text
 
 ;; ----------------------------------------------------------------------------
 ;; ui_help
