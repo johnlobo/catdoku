@@ -307,6 +307,23 @@ class Emulator(unittest.TestCase):
                     pens = {screen[y][x0 + 16 * col + 4 + i] for i in range(8)}
                     self.assertEqual(pens, {want}, f"n={n} col {col} y={y}")
 
+    def test_titles_are_double_height(self):
+        emu = self.boot()
+        self.tap(emu, "down")              # CONTINUE is disabled: down goes to RULES
+        self.tap(emu, "return", 30)
+        self.assertEqual(self.byte(emu, "game_state"), STATE_RULES)
+        screen = self.pens(emu)
+        top = 16 + 5                       # menu_title_box at line 16, text 5 lines below
+        yellow, fill = common_constant("PEN_YELLOW"), common_constant("PEN_DARK_RED")
+        lines = [screen[top + y] for y in range(12)]
+        self.assertTrue(any(yellow in line for line in lines), "no title text")
+        for k in range(6):
+            self.assertEqual(lines[2 * k], lines[2 * k + 1], f"glyph row {k} is not drawn twice")
+        self.assertNotIn(yellow, screen[top + 12], "the title is taller than 12 lines")
+        self.assertNotIn(yellow, screen[top - 1], "the title starts too high")
+        box = common_constant("MENU_TITLE_BOX_H")
+        self.assertIn(fill, screen[16 + box - 2], "the box is shorter than MENU_TITLE_BOX_H")
+
     def test_held_cursor_repeats_after_15_frames_then_every_4(self):
         emu = self.boot()
         self.open_level(emu)

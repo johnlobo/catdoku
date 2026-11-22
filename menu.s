@@ -845,8 +845,9 @@ _mdi_box:
 
 ;; ----------------------------------------------------------------------------
 ;; menu_title_box
-;;   In: IY = string, C = top line. A 15-line box with orange border and dark
-;;   red fill, as wide as the text plus 12 pixels and centred, the text yellow.
+;;   In: IY = string, C = top line. A 21-line box with orange border and dark
+;;   red fill, as wide as the text plus 12 pixels and centred, the text yellow
+;;   at double height (12 lines, ui_text_in_big).
 ;;   Modifies: AF, BC, DE, HL, IY.
 ;; menu_text_centred
 ;;   In: IY = string, C = line, A = pen. Centred on the screen.
@@ -876,7 +877,7 @@ _mtb_len_done:
     push bc
     push de
     push iy
-    ld e, #15
+    ld e, #MENU_TITLE_BOX_H
     ld h, #PEN_ORANGE
     ld l, #PEN_DARK_RED
     call ui_box
@@ -887,7 +888,7 @@ _mtb_len_done:
     add a, #5
     ld c, a
     ld a, #PEN_YELLOW
-    jp ui_text_in
+    jp ui_text_in_big
 menu_text_centred::
     ld b, #0
     ld d, #160
